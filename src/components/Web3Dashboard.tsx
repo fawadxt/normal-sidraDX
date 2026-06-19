@@ -8,6 +8,7 @@ import {
 } from 'wagmi'
 import { parseEther, formatUnits, type Address } from 'viem'
 import { ConnectWalletModal } from './ConnectWalletModal'
+import { AppLogo } from './AppLogo'
 import { NavIcon } from './NavIcon'
 import { SwapPanel } from './SwapPanel'
 import { useAppConfig } from '../hooks/useAppConfig'
@@ -77,25 +78,28 @@ export default function Web3Dashboard() {
 
   return (
     <div className="flex flex-col h-screen max-h-screen bg-slate-900 text-slate-100 font-sans overflow-hidden">
-      <header className="flex items-center justify-between px-6 py-4 bg-slate-950 border-b border-slate-800 shrink-0">
-        <div className="flex items-center gap-2.5">
-          <div
-            className={`w-2.5 h-2.5 rounded-full ${isConnected ? 'bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.5)]' : 'bg-rose-500'}`}
-          />
-          <span className="text-xs font-mono font-bold tracking-widest text-slate-400 uppercase">
-            {isConnected && chain ? chain.name : 'Network Disconnected'}
-          </span>
+      <header className="flex items-center justify-between gap-3 px-4 sm:px-6 py-3.5 bg-slate-950 border-b border-slate-800 shrink-0">
+        <div className="flex items-center gap-3 min-w-0">
+          <AppLogo size="md" showName />
+          <div className="hidden sm:flex items-center gap-1.5 pl-1 border-l border-slate-800">
+            <div
+              className={`w-2 h-2 rounded-full shrink-0 ${isConnected ? 'bg-emerald-500 shadow-[0_0_8px_rgba(16,185,129,0.5)]' : 'bg-rose-500'}`}
+            />
+            <span className="text-[10px] font-mono font-bold tracking-wider text-slate-500 uppercase truncate">
+              {isConnected && chain ? chain.name : 'Offline'}
+            </span>
+          </div>
         </div>
 
         {isConnected && address ? (
-          <div className="flex items-center gap-3">
-            <span className="text-xs font-mono bg-slate-800 px-3 py-1.5 rounded-xl border border-slate-700 text-slate-300">
+          <div className="flex items-center gap-2 shrink-0">
+            <span className="text-[11px] font-mono bg-slate-800 px-2.5 py-1.5 rounded-xl border border-slate-700 text-slate-300">
               {truncateAddress(address)}
             </span>
             <button
               type="button"
               onClick={() => disconnect()}
-              className="text-xs font-semibold text-rose-400 bg-rose-950/30 hover:bg-rose-900/40 px-3 py-1.5 rounded-xl border border-rose-900/50 transition-all cursor-pointer"
+              className="text-[11px] font-semibold text-rose-400 bg-rose-950/30 hover:bg-rose-900/40 px-2.5 py-1.5 rounded-xl border border-rose-900/50 transition-all cursor-pointer"
             >
               Disconnect
             </button>
@@ -104,9 +108,9 @@ export default function Web3Dashboard() {
           <button
             type="button"
             onClick={openWalletModal}
-            className="text-xs font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-blue-500 hover:opacity-90 px-4 py-2 rounded-xl shadow-lg transition-all cursor-pointer"
+            className="text-[11px] font-bold text-slate-950 bg-gradient-to-r from-cyan-400 to-blue-500 hover:opacity-90 px-3.5 py-2 rounded-xl shadow-lg transition-all cursor-pointer shrink-0"
           >
-            Connect Wallet
+            Connect
           </button>
         )}
       </header>

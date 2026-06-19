@@ -37,7 +37,7 @@ if (walletConnectProjectId) {
         name: 'SidraDX',
         description: 'Sidra Chain DEX Wallet',
         url: appUrl,
-        icons: [`${appUrl}/favicon.svg`],
+        icons: [`${appUrl}/logo.png`],
       },
       showQrModal: true,
     }),

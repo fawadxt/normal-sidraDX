@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { sidraChain } from '../config/sidraChain'
 
 import { MetaMaskIcon } from './icons/MetaMaskIcon'
+import { AppLogo } from './AppLogo'
 
 import { ImportWalletFlow } from './ImportWalletFlow'
 
@@ -165,8 +166,13 @@ export function ConnectWalletModal({
       >
 
         <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100">
-
-          <h2 className="text-lg font-bold text-slate-900">Connect Wallet</h2>
+          <div className="flex items-center gap-3">
+            <AppLogo size="sm" />
+            <div>
+              <h2 className="text-lg font-bold text-slate-900 leading-tight">Connect Wallet</h2>
+              <p className="text-[11px] text-slate-500 font-medium">SidraDX</p>
+            </div>
+          </div>
 
           <button
 
