@@ -8,7 +8,10 @@ export function formatTokenBalance(value: bigint | undefined, decimals = 18): st
   if (value === 0n) return '0'
 
   const num = parseFloat(formatUnits(value, decimals))
-  if (num >= 1000) return num.toFixed(2)
+  if (num >= 1000) {
+    const floored = Math.floor(num * 100) / 100
+    return floored.toFixed(2)
+  }
   if (num >= 1) return num.toFixed(4).replace(/\.?0+$/, '')
   return num.toFixed(6).replace(/\.?0+$/, '')
 }

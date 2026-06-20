@@ -6,13 +6,13 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { parseEther, type Address } from 'viem'
+import { parseEther, formatUnits, type Address } from 'viem'
 import { erc20Abi, wsdaAbi } from '../config/abis'
 import { TokenSelect } from './TokenSelect'
 import { LoadingDots, LoadingLabel } from './LoadingDots'
 import { useAppConfig } from '../hooks/useAppConfig'
 import { useSwapQuote } from '../hooks/useSwapQuote'
-import { useTokenBalances } from '../hooks/useTokenBalances'
+import { useTokenBalances, trimAmountInput } from '../hooks/useTokenBalances'
 import { recordSwap, fetchQuote } from '../lib/api'
 import type { SwapQuote } from '../lib/api'
 import {
@@ -29,7 +29,18 @@ type Props = {
   onConnect: () => void
 }
 
-type SwapStep = 'idle' | 'fee' | 'approve' | 'swap'
+type SwapStep = 'idle' | 'fee' | 'prepare' | 'approve' | 'swap'
+
+function getEffectiveSwapWei(
+  fromToken: string,
+  amountIn: string,
+  balancesWei: Record<string, bigint>,
+): bigint {
+  const requested = parseEther(amountIn || '0')
+  if (fromToken === 'SDA') return requested
+  const available = balancesWei[fromToken] ?? 0n
+  return requested > available ? available : requested
+}
 
 function routeLabel(routeType?: SwapQuote['routeType']): string {
   switch (routeType) {
@@ -95,8 +106,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   })
 
   const swapFeeWei = parseEther(config.swapFeeAmount || '0.1')
-  const swapAmountWei = amountIn ? parseEther(amountIn) : 0n
-  const totalNeeded = swapAmountWei + (fromToken === 'SDA' ? swapFeeWei : 0n)
+  const effectiveSwapWei = getEffectiveSwapWei(fromToken, amountIn, balancesWei)
+  const totalNeeded = effectiveSwapWei + (fromToken === 'SDA' ? swapFeeWei : 0n)
 
   const maxSwapAmount = getMaxSwapAmount(fromToken)
   const canUseMax = isConnected && Number(maxSwapAmount) > 0
@@ -104,9 +115,10 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const hasEnoughBalance =
     isConnected &&
     nativeBalance &&
+    effectiveSwapWei > 0n &&
     (fromToken === 'SDA'
       ? nativeBalance.value >= totalNeeded
-      : (balancesWei[fromToken] ?? 0n) >= swapAmountWei &&
+      : (balancesWei[fromToken] ?? 0n) >= effectiveSwapWei &&
         nativeBalance.value >= swapFeeWei)
 
   const {
@@ -178,11 +190,13 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         const token = fromMeta?.address as Address
         if (!token) return
 
+        const amountWei = getEffectiveSwapWei(fromToken, amountIn, balancesWei)
+
         sendSwap({
           to: swapAddress,
           data: encodeSidraSellCall(
             token,
-            parseEther(amountIn),
+            amountWei,
             slippageParam,
             minOut,
             deadline,
@@ -190,7 +204,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         })
       }
     },
-    [address, amountIn, fromMeta?.address, fromToken, sendSwap, swapAddress, toMeta?.address],
+    [address, amountIn, balancesWei, fromMeta?.address, fromToken, sendSwap, swapAddress, toMeta?.address],
   )
 
   const executeWrapSwap = useCallback(
@@ -222,7 +236,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const runSwapStep = useCallback(
     (activeQuote: SwapQuote) => {
       if (activeQuote.routeType === 'sidra-sell') {
-        const amountWei = parseEther(amountIn)
+        const amountWei = getEffectiveSwapWei(fromToken, amountIn, balancesWei)
         const allowance = tokenAllowance ?? 0n
         if (allowance < amountWei) {
           setStep('approve')
@@ -249,13 +263,14 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       approveToken,
       executeSidraSwap,
       executeWrapSwap,
+      balancesWei,
       fromMeta,
       swapAddress,
       tokenAllowance,
     ],
   )
 
-  const handleSwapClick = async () => {
+  const handleSwapClick = () => {
     if (!isConnected) {
       onConnect()
       return
@@ -263,23 +278,40 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     if (!amountIn || Number(amountIn) <= 0 || !quote || !isFeeConfigured || !feeRecipient) return
     if (!hasEnoughBalance) return
 
-    try {
-      const freshQuote = await fetchQuote(fromToken, toToken, amountIn)
-      setPendingQuote(freshQuote)
-      setStep('fee')
-      sendFee({ to: feeRecipient, value: swapFeeWei })
-    } catch (err) {
-      setPendingQuote(quote)
-      setStep('fee')
-      sendFee({ to: feeRecipient, value: swapFeeWei })
-      console.warn('Fresh quote failed, using cached quote:', err)
-    }
+    setPendingQuote(quote)
+    setStep('fee')
+    sendFee({ to: feeRecipient, value: swapFeeWei })
   }
 
   useEffect(() => {
     if (!feeSuccess || step !== 'fee' || !pendingQuote) return
-    runSwapStep(pendingQuote)
-  }, [feeSuccess, step, pendingQuote, runSwapStep])
+
+    let cancelled = false
+
+    const continueSwap = async () => {
+      setStep('prepare')
+      let activeQuote = pendingQuote
+      const swapAmount =
+        fromToken === 'SDA'
+          ? amountIn
+          : trimAmountInput(formatUnits(effectiveSwapWei, 18)) || amountIn
+
+      try {
+        activeQuote = await fetchQuote(fromToken, toToken, swapAmount)
+        if (!cancelled) setPendingQuote(activeQuote)
+      } catch {
+        // keep fee-approved quote
+      }
+
+      if (!cancelled) runSwapStep(activeQuote)
+    }
+
+    void continueSwap()
+
+    return () => {
+      cancelled = true
+    }
+  }, [feeSuccess, step, pendingQuote, runSwapStep, fromToken, toToken, amountIn, effectiveSwapWei])
 
   useEffect(() => {
     if (!approveSuccess || step !== 'approve' || !pendingQuote) return
@@ -336,6 +368,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     swapSendPending ||
     swapWritePending ||
     swapConfirming ||
+    step === 'fee' ||
+    step === 'prepare' ||
     step === 'swap'
 
   const activeError = feeError ?? approveError ?? swapSendError ?? swapWriteError
@@ -463,6 +497,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
             : isBusy
               ? step === 'fee'
                 ? <LoadingLabel text="Paying fee" />
+                : step === 'prepare'
+                  ? <LoadingLabel text="Preparing swap" />
                 : step === 'approve'
                   ? <LoadingLabel text="Approving token" />
                   : <LoadingLabel text="Swapping on SidraDX" />
@@ -472,6 +508,11 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       {!hasEnoughBalance && amountIn && Number(amountIn) > 0 && isConnected && (
         <div className="p-3 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs font-mono">
           Insufficient balance for swap + {config.swapFeeAmount} SDA fee.
+          {fromToken !== 'SDA' && canUseMax && (
+            <span className="block mt-1 text-rose-300/90">
+              Tip: use the Max button for your full {fromToken} balance.
+            </span>
+          )}
         </div>
       )}
 
