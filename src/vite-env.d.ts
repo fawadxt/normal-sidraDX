@@ -11,9 +11,14 @@ interface ImportMeta {
   readonly env: ImportMetaEnv
 }
 
+interface EthereumProvider {
+  isMetaMask?: boolean
+  isSafePal?: boolean
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
+}
+
 interface Window {
-  ethereum?: {
-    isMetaMask?: boolean
-    request: (args: { method: string; params?: unknown[] }) => Promise<unknown>
-  }
+  ethereum?: EthereumProvider
+  safepalProvider?: EthereumProvider
+  safepal?: EthereumProvider
 }

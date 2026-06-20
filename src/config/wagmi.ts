@@ -1,5 +1,6 @@
 import { createConfig, createStorage, http, type CreateConnectorFn } from 'wagmi'
 import { injected, metaMask, walletConnect } from '@wagmi/connectors'
+import type { EIP1193Provider } from 'viem'
 import { localWallet } from './localWalletConnector'
 import { sidraChain } from './sidraChain'
 
@@ -23,6 +24,23 @@ const connectors: CreateConnectorFn[] = [
   injected({
     shimDisconnect: true,
     target: 'rabby',
+  }),
+  injected({
+    shimDisconnect: true,
+    unstable_shimAsyncInject: 2_000,
+    target() {
+      if (typeof window === 'undefined') return undefined
+      const provider =
+        window.safepalProvider ??
+        window.safepal ??
+        (window.ethereum?.isSafePal ? window.ethereum : undefined)
+      if (!provider) return undefined
+      return {
+        id: 'safepal',
+        name: 'SafePal',
+        provider: provider as EIP1193Provider,
+      }
+    },
   }),
   injected({
     shimDisconnect: true,

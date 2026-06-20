@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { sidraChain } from '../config/sidraChain'
 
 import { MetaMaskIcon } from './icons/MetaMaskIcon'
+import { SafePalIcon } from './icons/SafePalIcon'
 import { AppLogo } from './AppLogo'
 
 import { ImportWalletFlow } from './ImportWalletFlow'
@@ -49,6 +50,24 @@ function hasMetaMask() {
 
 
 
+function hasSafePal() {
+
+  if (typeof window === 'undefined') return false
+
+  return !!(
+
+    window.safepalProvider ||
+
+    window.safepal ||
+
+    window.ethereum?.isSafePal
+
+  )
+
+}
+
+
+
 export function ConnectWalletModal({
 
   open,
@@ -71,9 +90,13 @@ export function ConnectWalletModal({
 
   const metaMaskDetected = hasMetaMask() || wallets.some((w) => w.id === 'metaMaskSDK')
 
+  const safePalDetected = hasSafePal() || wallets.some((w) => w.id === 'safepal')
+
   const injectedWallet = wallets.find((w) => w.id === 'injected')
 
   const rabbyWallet = wallets.find((w) => w.id === 'io.rabby')
+
+  const safePalWallet = wallets.find((w) => w.id === 'safepal')
 
 
 
@@ -233,6 +256,74 @@ export function ConnectWalletModal({
               </div>
 
               <p className="text-xs text-slate-500 mt-0.5">Browser extension wallet</p>
+
+            </div>
+
+          </button>
+
+
+
+          <button
+
+            type="button"
+
+            disabled={isConnecting}
+
+            onClick={() => {
+
+              if (safePalWallet) {
+
+                onConnect(safePalWallet.id)
+
+                return
+
+              }
+
+              if (safePalDetected) {
+
+                onConnect('safepal')
+
+                return
+
+              }
+
+              window.open('https://www.safepal.com/download?product=2', '_blank', 'noopener')
+
+            }}
+
+            className="w-full flex items-center gap-3 p-3 rounded-xl border border-slate-200 hover:border-violet-300 hover:bg-violet-50/50 disabled:opacity-50 transition-all cursor-pointer text-left"
+
+          >
+
+            <div className="w-11 h-11 rounded-xl bg-[#F3E8FF] flex items-center justify-center shrink-0">
+
+              <SafePalIcon className="w-8 h-8" />
+
+            </div>
+
+            <div className="flex-1 min-w-0">
+
+              <div className="flex items-center gap-2">
+
+                <span className="font-bold text-slate-900">SafePal</span>
+
+                {safePalDetected && (
+
+                  <span className="text-[10px] font-bold uppercase tracking-wide bg-emerald-100 text-emerald-700 px-2 py-0.5 rounded-full">
+
+                    Detected
+
+                  </span>
+
+                )}
+
+              </div>
+
+              <p className="text-xs text-slate-500 mt-0.5">
+
+                Browser extension · mobile app via WalletConnect
+
+              </p>
 
             </div>
 

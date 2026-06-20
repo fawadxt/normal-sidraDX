@@ -20,7 +20,7 @@ function getConnectErrorMessage(error: Error | null): string | null {
   }
 
   if (lower.includes('provider not found')) {
-    return 'No wallet extension found. Install MetaMask or Rabby, then refresh.'
+    return 'No wallet extension found. Install MetaMask, SafePal, or Rabby, then refresh.'
   }
 
   return message
@@ -66,6 +66,7 @@ export function useWalletConnect() {
         (connectorId ? connectors.find((c) => c.id === connectorId) : undefined) ??
         connectors.find((c) => c.id === 'metaMaskSDK') ??
         connectors.find((c) => c.id === 'io.metamask') ??
+        connectors.find((c) => c.id === 'safepal') ??
         connectors.find((c) => c.id === 'io.rabby') ??
         connectors.find((c) => c.id === 'injected') ??
         connectors[0]
@@ -75,7 +76,11 @@ export function useWalletConnect() {
         return
       }
 
-      if (connector.id !== 'metaMaskSDK' && connector.id !== 'walletConnect' && connector.id !== 'sidradx-local') {
+      if (
+        connector.id !== 'metaMaskSDK' &&
+        connector.id !== 'walletConnect' &&
+        connector.id !== 'sidradx-local'
+      ) {
         try {
           const provider = await connector.getProvider()
           if (!provider) {
