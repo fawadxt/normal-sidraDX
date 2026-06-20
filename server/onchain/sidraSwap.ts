@@ -353,6 +353,14 @@ function estimateWsdaFromSell(tokenIn: number, rate: TokenRate): number {
   return (tokenIn / rate.tokenPerSda) * 0.97
 }
 
+function sellMinOutMultiplierBps(tokenIn: number): bigint {
+  if (tokenIn <= 50) return 9000n
+  if (tokenIn <= 250) return 7500n
+  if (tokenIn <= 1000) return 6000n
+  if (tokenIn <= 5000) return 5000n
+  return 4200n
+}
+
 export async function quoteSidraSell(
   tokenAddress: string,
   amountIn: string,
@@ -362,8 +370,11 @@ export async function quoteSidraSell(
   const tokenIn = Number(amountIn)
   const wsdaOut = estimateWsdaFromSell(tokenIn, rate)
   const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
-  const sellSlippageBps = Math.max(slippageBps, 500)
-  const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
+  const sellSlippageBps = Math.max(slippageBps, 1500)
+  const minOut =
+    (((wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n) *
+      sellMinOutMultiplierBps(tokenIn)) /
+    10000n
 
   return {
     amountOut: wsdaOut.toString(),

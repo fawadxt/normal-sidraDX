@@ -431,6 +431,11 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
             Route: {routeLabel(quote.routeType)}
           </p>
         )}
+        {quote?.routeType === 'sidra-sell' && Number(amountIn) > 1000 && (
+          <p className="text-[10px] text-amber-500/90 mt-1 font-mono">
+            Large swap: actual SDA received may be less than the estimate shown.
+          </p>
+        )}
       </div>
 
       <p className="px-1 text-[11px] text-slate-500">
