@@ -47,9 +47,6 @@ type TokenRate = {
   source: 'buy' | 'sell' | 'simulated'
 }
 
-let rateCache: { at: number; rates: Map<string, TokenRate> } | null = null
-const CACHE_MS = 5 * 60 * 1000
-
 function normalizeAddress(address: string): string {
   return address.toLowerCase()
 }
@@ -110,55 +107,107 @@ export function encodeSidraSellCall(
   return `${SIDRA_SWAP_SELL_SELECTOR}${encoded.slice(10)}` as Hex
 }
 
-async function fetchSwapTransactions(): Promise<
-  Array<{ hash: string; raw_input: string; from: string | { hash: string } }>
-> {
-  const items: Array<{ hash: string; raw_input: string; from: string | { hash: string } }> = []
-  let nextParams: Record<string, string> | null = null
+type SwapTx = { hash: string; raw_input: string; from: string | { hash: string } }
 
-  for (let page = 0; page < 10; page++) {
-    let url = `${EXPLORER_API}/addresses/${SIDRA_SWAP_ADDRESS}/transactions?filter=to`
-    if (nextParams) {
-      url += `&${new URLSearchParams(nextParams).toString()}`
-    }
+let rateCache: { at: number; rates: Map<string, TokenRate> } = {
+  at: 0,
+  rates: new Map(),
+}
+const CACHE_MS = 30 * 60 * 1000
+const EXPLORER_MAX_PAGES = 4
 
-    const response = await fetch(url)
-    if (!response.ok) break
-
-    const json = (await response.json()) as {
-      items?: Array<{ hash: string; raw_input: string; from: string | { hash: string } }>
-      next_page_params?: Record<string, string> | null
-    }
-
-    items.push(...(json.items ?? []))
-    nextParams = json.next_page_params ?? null
-    if (!nextParams) break
-  }
-
-  return items
+function ensureCacheFresh(): void {
+  if (Date.now() - rateCache.at < CACHE_MS) return
+  rateCache = { at: Date.now(), rates: new Map() }
 }
 
 function txSender(from: string | { hash: string }): string {
   return typeof from === 'string' ? from : from.hash
 }
 
-async function buildRatesFromExplorer(): Promise<Map<string, TokenRate>> {
-  const rates = new Map<string, TokenRate>()
-  const txs = await fetchSwapTransactions()
+async function fetchExplorerPage(
+  nextParams: Record<string, string> | null,
+): Promise<{ items: SwapTx[]; next: Record<string, string> | null }> {
+  let url = `${EXPLORER_API}/addresses/${SIDRA_SWAP_ADDRESS}/transactions?filter=to`
+  if (nextParams) {
+    url += `&${new URLSearchParams(nextParams).toString()}`
+  }
 
-  for (const tx of txs) {
-    const input = tx.raw_input
-    if (!input) continue
+  const response = await fetch(url)
+  if (!response.ok) return { items: [], next: null }
 
-    if (input.startsWith('0xdde6379f')) {
+  const json = (await response.json()) as {
+    items?: SwapTx[]
+    next_page_params?: Record<string, string> | null
+  }
+
+  return { items: json.items ?? [], next: json.next_page_params ?? null }
+}
+
+function parseSellRate(rawInput: string): { token: string; rate: TokenRate } | null {
+  if (!rawInput.startsWith('0x968e7276')) return null
+
+  try {
+    const params = decodeAbiParameters(
+      [
+        { type: 'address' },
+        { type: 'uint256' },
+        { type: 'uint256' },
+        { type: 'uint256' },
+        { type: 'uint256' },
+      ],
+      (`0x${rawInput.slice(10)}`) as `0x${string}`,
+    )
+    const token = normalizeAddress(params[0] as string)
+    const tokenIn = Number(formatUnits(params[1] as bigint, 18))
+    const minWsdaOut = Number(formatUnits(params[3] as bigint, 18))
+    if (tokenIn <= 0 || minWsdaOut <= 0) return null
+
+    return {
+      token,
+      rate: { tokenPerSda: (tokenIn / minWsdaOut) * 0.99, source: 'sell' },
+    }
+  } catch {
+    return null
+  }
+}
+
+async function findSellRateFromExplorer(tokenKey: string): Promise<TokenRate | null> {
+  let next: Record<string, string> | null = null
+
+  for (let page = 0; page < EXPLORER_MAX_PAGES; page++) {
+    const { items, next: nextPage } = await fetchExplorerPage(next)
+    for (const tx of items) {
+      const parsed = parseSellRate(tx.raw_input)
+      if (parsed?.token === tokenKey) return parsed.rate
+    }
+    next = nextPage
+    if (!next) break
+  }
+
+  return null
+}
+
+async function findBuyRateFromExplorer(tokenKey: string): Promise<TokenRate | null> {
+  let next: Record<string, string> | null = null
+
+  for (let page = 0; page < EXPLORER_MAX_PAGES; page++) {
+    const { items, next: nextPage } = await fetchExplorerPage(next)
+
+    for (const tx of items) {
+      const input = tx.raw_input
+      if (!input?.startsWith('0xdde6379f')) continue
+
       try {
-        const onchainTx = await publicClient.getTransaction({ hash: tx.hash as `0x${string}` })
-        const receipt = await publicClient.getTransactionReceipt({ hash: tx.hash as `0x${string}` })
         const params = decodeAbiParameters(
           [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }],
           (`0x${input.slice(10)}`) as `0x${string}`,
         )
         const token = normalizeAddress(params[0] as string)
+        if (token !== tokenKey) continue
+
+        const onchainTx = await publicClient.getTransaction({ hash: tx.hash as `0x${string}` })
+        const receipt = await publicClient.getTransactionReceipt({ hash: tx.hash as `0x${string}` })
         const sdaIn = Number(formatUnits(onchainTx.value, 18))
         if (sdaIn <= 0) continue
 
@@ -185,40 +234,18 @@ async function buildRatesFromExplorer(): Promise<Map<string, TokenRate>> {
         }
 
         if (tokenOut > 0) {
-          rates.set(token, { tokenPerSda: tokenOut / sdaIn, source: 'buy' })
+          return { tokenPerSda: tokenOut / sdaIn, source: 'buy' }
         }
       } catch {
-        // skip malformed buy tx
-      }
-      continue
-    }
-
-    if (input.startsWith('0x968e7276')) {
-      try {
-        const params = decodeAbiParameters(
-          [
-            { type: 'address' },
-            { type: 'uint256' },
-            { type: 'uint256' },
-            { type: 'uint256' },
-            { type: 'uint256' },
-          ],
-          (`0x${input.slice(10)}`) as `0x${string}`,
-        )
-        const token = normalizeAddress(params[0] as string)
-        const tokenIn = Number(formatUnits(params[1] as bigint, 18))
-        const minWsdaOut = Number(formatUnits(params[3] as bigint, 18))
-        if (tokenIn <= 0 || minWsdaOut <= 0) continue
-
-        const tokenPerSda = (tokenIn / minWsdaOut) * 0.99
-        rates.set(token, { tokenPerSda, source: 'sell' })
-      } catch {
-        // skip malformed sell tx
+        // try next matching tx
       }
     }
+
+    next = nextPage
+    if (!next) break
   }
 
-  return rates
+  return null
 }
 
 async function simulateBuyOutput(tokenAddress: string, amountInSda: string): Promise<bigint> {
@@ -266,15 +293,23 @@ async function simulateBuyOutput(tokenAddress: string, amountInSda: string): Pro
 }
 
 async function getTokenRate(tokenAddress: string): Promise<TokenRate> {
-  const now = Date.now()
   const key = normalizeAddress(tokenAddress)
-
-  if (!rateCache || now - rateCache.at >= CACHE_MS) {
-    rateCache = { at: now, rates: await buildRatesFromExplorer() }
-  }
+  ensureCacheFresh()
 
   const cached = rateCache.rates.get(key)
   if (cached) return cached
+
+  const fromSell = await findSellRateFromExplorer(key)
+  if (fromSell) {
+    rateCache.rates.set(key, fromSell)
+    return fromSell
+  }
+
+  const fromBuy = await findBuyRateFromExplorer(key)
+  if (fromBuy) {
+    rateCache.rates.set(key, fromBuy)
+    return fromBuy
+  }
 
   const simulatedOut = await simulateBuyOutput(tokenAddress, '1')
   if (simulatedOut === 0n) {
@@ -283,8 +318,10 @@ async function getTokenRate(tokenAddress: string): Promise<TokenRate> {
     )
   }
 
-  const tokenPerSda = Number(formatUnits(simulatedOut, 18))
-  const simulated: TokenRate = { tokenPerSda, source: 'simulated' }
+  const simulated: TokenRate = {
+    tokenPerSda: Number(formatUnits(simulatedOut, 18)),
+    source: 'simulated',
+  }
   rateCache.rates.set(key, simulated)
   return simulated
 }

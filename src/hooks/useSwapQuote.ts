@@ -10,14 +10,15 @@ export function useSwapQuote(from: string, to: string, amountIn: string) {
     if (!amountIn || Number(amountIn) <= 0 || from === to) {
       setQuote(null)
       setError(null)
+      setIsLoading(false)
       return
     }
 
     let cancelled = false
-    const timer = setTimeout(() => {
-      setIsLoading(true)
-      setError(null)
+    setIsLoading(true)
+    setError(null)
 
+    const timer = setTimeout(() => {
       fetchQuote(from, to, amountIn)
         .then((data) => {
           if (!cancelled) setQuote(data)
@@ -31,7 +32,7 @@ export function useSwapQuote(from: string, to: string, amountIn: string) {
         .finally(() => {
           if (!cancelled) setIsLoading(false)
         })
-    }, 400)
+    }, 300)
 
     return () => {
       cancelled = true
