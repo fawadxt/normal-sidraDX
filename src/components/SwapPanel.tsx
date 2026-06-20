@@ -6,14 +6,14 @@ import {
   useWaitForTransactionReceipt,
   useWriteContract,
 } from 'wagmi'
-import { parseEther, formatUnits, type Address } from 'viem'
+import { parseEther, type Address } from 'viem'
 import { erc20Abi, wsdaAbi } from '../config/abis'
 import { TokenSelect } from './TokenSelect'
 import { LoadingDots, LoadingLabel } from './LoadingDots'
 import { useAppConfig } from '../hooks/useAppConfig'
 import { useSwapQuote } from '../hooks/useSwapQuote'
-import { useTokenBalances, trimAmountInput } from '../hooks/useTokenBalances'
-import { recordSwap, fetchQuote } from '../lib/api'
+import { useTokenBalances } from '../hooks/useTokenBalances'
+import { recordSwap } from '../lib/api'
 import type { SwapQuote } from '../lib/api'
 import {
   encodeSidraBuyCall,
@@ -29,7 +29,7 @@ type Props = {
   onConnect: () => void
 }
 
-type SwapStep = 'idle' | 'fee' | 'prepare' | 'approve' | 'swap'
+type SwapStep = 'idle' | 'fee' | 'approve' | 'swap'
 
 function getEffectiveSwapWei(
   fromToken: string,
@@ -285,33 +285,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
 
   useEffect(() => {
     if (!feeSuccess || step !== 'fee' || !pendingQuote) return
-
-    let cancelled = false
-
-    const continueSwap = async () => {
-      setStep('prepare')
-      let activeQuote = pendingQuote
-      const swapAmount =
-        fromToken === 'SDA'
-          ? amountIn
-          : trimAmountInput(formatUnits(effectiveSwapWei, 18)) || amountIn
-
-      try {
-        activeQuote = await fetchQuote(fromToken, toToken, swapAmount)
-        if (!cancelled) setPendingQuote(activeQuote)
-      } catch {
-        // keep fee-approved quote
-      }
-
-      if (!cancelled) runSwapStep(activeQuote)
-    }
-
-    void continueSwap()
-
-    return () => {
-      cancelled = true
-    }
-  }, [feeSuccess, step, pendingQuote, runSwapStep, fromToken, toToken, amountIn, effectiveSwapWei])
+    runSwapStep(pendingQuote)
+  }, [feeSuccess, step, pendingQuote, runSwapStep])
 
   useEffect(() => {
     if (!approveSuccess || step !== 'approve' || !pendingQuote) return
@@ -369,7 +344,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     swapWritePending ||
     swapConfirming ||
     step === 'fee' ||
-    step === 'prepare' ||
     step === 'swap'
 
   const activeError = feeError ?? approveError ?? swapSendError ?? swapWriteError
@@ -497,8 +471,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
             : isBusy
               ? step === 'fee'
                 ? <LoadingLabel text="Paying fee" />
-                : step === 'prepare'
-                  ? <LoadingLabel text="Preparing swap" />
                 : step === 'approve'
                   ? <LoadingLabel text="Approving token" />
                   : <LoadingLabel text="Swapping on SidraDX" />
