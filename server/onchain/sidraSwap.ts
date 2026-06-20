@@ -344,6 +344,15 @@ export async function quoteSidraBuy(
   }
 }
 
+function estimateWsdaFromSell(tokenIn: number, rate: TokenRate): number {
+  if (rate.source === 'sell') {
+    // tokenPerSda = (tokenIn / minWsda) * 0.99  →  minWsda ≈ tokenIn / tokenPerSda * 0.99
+    return (tokenIn / rate.tokenPerSda) * 0.99
+  }
+  // Buy/simulated rate: apply pool fee haircut so minOut is not too aggressive
+  return (tokenIn / rate.tokenPerSda) * 0.97
+}
+
 export async function quoteSidraSell(
   tokenAddress: string,
   amountIn: string,
@@ -351,9 +360,10 @@ export async function quoteSidraSell(
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
   const rate = await getTokenRate(tokenAddress)
   const tokenIn = Number(amountIn)
-  const wsdaOut = tokenIn / rate.tokenPerSda / 0.99
+  const wsdaOut = estimateWsdaFromSell(tokenIn, rate)
   const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
-  const minOut = (wsdaOutWei * BigInt(10000 - slippageBps)) / 10000n
+  const sellSlippageBps = Math.max(slippageBps, 500)
+  const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
 
   return {
     amountOut: wsdaOut.toString(),

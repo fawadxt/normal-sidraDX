@@ -12,7 +12,7 @@ import { TokenSelect } from './TokenSelect'
 import { useAppConfig } from '../hooks/useAppConfig'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useTokenBalances } from '../hooks/useTokenBalances'
-import { recordSwap } from '../lib/api'
+import { recordSwap, fetchQuote } from '../lib/api'
 import type { SwapQuote } from '../lib/api'
 import {
   encodeSidraBuyCall,
@@ -254,7 +254,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     ],
   )
 
-  const handleSwapClick = () => {
+  const handleSwapClick = async () => {
     if (!isConnected) {
       onConnect()
       return
@@ -262,9 +262,17 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     if (!amountIn || Number(amountIn) <= 0 || !quote || !isFeeConfigured || !feeRecipient) return
     if (!hasEnoughBalance) return
 
-    setPendingQuote(quote)
-    setStep('fee')
-    sendFee({ to: feeRecipient, value: swapFeeWei })
+    try {
+      const freshQuote = await fetchQuote(fromToken, toToken, amountIn)
+      setPendingQuote(freshQuote)
+      setStep('fee')
+      sendFee({ to: feeRecipient, value: swapFeeWei })
+    } catch (err) {
+      setPendingQuote(quote)
+      setStep('fee')
+      sendFee({ to: feeRecipient, value: swapFeeWei })
+      console.warn('Fresh quote failed, using cached quote:', err)
+    }
   }
 
   useEffect(() => {
