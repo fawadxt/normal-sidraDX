@@ -317,6 +317,10 @@ async function getBuyOutputCached(tokenAddress: string, amountInSda: string): Pr
     const oneHit = buyOutputCache.get(oneKey)
     if (oneHit) hint = Number(formatUnits(oneHit.out, 18))
   }
+  if (!hint) {
+    const explorerHint = await getExplorerTokensPerSda(tokenAddress)
+    if (explorerHint) hint = explorerHint
+  }
 
   const out = await simulateBuyOutput(tokenAddress, amountInSda, hint)
   if (out > 0n) {
@@ -396,14 +400,33 @@ function reservesFromTwoBuys(
   tLarge: number,
   sLarge: number,
 ): PoolReserves | null {
+  if (tSmall <= 0 || tLarge <= 0 || sSmall <= 0 || sLarge <= 0) return null
+
   const denom = tSmall / sSmall - tLarge / sLarge
-  if (Math.abs(denom) < 1e-12) return null
+  if (Math.abs(denom) < 1e-8) return null
 
   const y = (tLarge - tSmall) / denom
   const x = (tSmall * (y + sSmall)) / sSmall
   if (!Number.isFinite(x) || !Number.isFinite(y) || x <= 0 || y <= 0) return null
 
   return { x, y }
+}
+
+const VIRTUAL_SDA_DEPTH = Number(process.env.SIDRA_VIRTUAL_SDA_DEPTH ?? '8000')
+
+function reservesFromSingleBuy(tokensOut: number, sdaIn: number): PoolReserves {
+  const y = VIRTUAL_SDA_DEPTH
+  const x = (tokensOut * (y + sdaIn)) / sdaIn
+  return { x, y }
+}
+
+async function getExplorerTokensPerSda(tokenAddress: string): Promise<number | null> {
+  const key = normalizeAddress(tokenAddress)
+  const fromBuy = await findBuyRateFromExplorer(key)
+  if (fromBuy?.tokenPerSda) return fromBuy.tokenPerSda
+  const fromSell = await findSellRateFromExplorer(key)
+  if (fromSell?.tokenPerSda) return fromSell.tokenPerSda
+  return null
 }
 
 async function getPoolReserves(tokenAddress: string): Promise<PoolReserves> {
@@ -414,20 +437,31 @@ async function getPoolReserves(tokenAddress: string): Promise<PoolReserves> {
   if (cached) return cached
 
   const out1 = await getBuyOutputCached(tokenAddress, '1')
-  const out2 = await getBuyOutputCached(tokenAddress, '2')
+  const t1 = Number(formatUnits(out1, 18))
 
-  const reserves = reservesFromTwoBuys(
-    Number(formatUnits(out1, 18)),
-    1,
-    Number(formatUnits(out2, 18)),
-    2,
-  )
-  if (!reserves) {
-    throw new Error('Could not derive SidraDX pool reserves for this token.')
+  if (t1 > 0) {
+    const out10 = await getBuyOutputCached(tokenAddress, '10')
+    const derived10 = reservesFromTwoBuys(t1, 1, Number(formatUnits(out10, 18)), 10)
+    if (derived10) {
+      reserveCache.reserves.set(key, derived10)
+      return derived10
+    }
+
+    const single = reservesFromSingleBuy(t1, 1)
+    reserveCache.reserves.set(key, single)
+    return single
   }
 
-  reserveCache.reserves.set(key, reserves)
-  return reserves
+  const explorerRate = await getExplorerTokensPerSda(tokenAddress)
+  if (explorerRate && explorerRate > 0) {
+    const reserves = reservesFromSingleBuy(explorerRate, 1)
+    reserveCache.reserves.set(key, reserves)
+    return reserves
+  }
+
+  throw new Error(
+    'SidraDX swap simulation failed for this token. It may not be listed in the Sidra pool yet.',
+  )
 }
 
 function estimateBuyOutput(sdaIn: number, reserves: PoolReserves): number {
