@@ -41,12 +41,6 @@ export const SIDRA_TOKENS: SwapToken[] = [
     decimals: 18,
   },
   {
-    symbol: 'GACP',
-    name: 'GLN Agriculture Chain',
-    address: '0x99c03AF034e5b471ADb0536be65632B12492f991',
-    decimals: 18,
-  },
-  {
     symbol: 'AIR',
     name: 'AirLand',
     address: '0x4cE5ef02F9aEbb80BB4e327F76DFb95eac1B69A6',
