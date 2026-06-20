@@ -277,16 +277,27 @@ async function simulateBuyOutput(
   }
 
   let lo = 0n
-  let hi = 1n
+  const seed = parseEther(Math.max(estimateTokens * 0.25, 0.0001).toFixed(8))
+  let hi = seed
 
-  while (hi < maxOut && (await callSucceeds(hi))) {
+  if (!(await callSucceeds(hi))) {
+    hi = 1n
+    while (hi < maxOut && (await callSucceeds(hi))) {
+      lo = hi
+      hi *= 2n
+    }
+  } else {
     lo = hi
-    hi *= 2n
+    let next = hi * 2n
+    while (next < maxOut && (await callSucceeds(next))) {
+      lo = next
+      next *= 2n
+    }
+    hi = next > maxOut ? maxOut : next
   }
 
-  if (hi >= maxOut) hi = maxOut
-
-  while (lo < hi) {
+  const tolerance = parseEther('0.0001')
+  while (lo < hi && hi - lo > tolerance) {
     const mid = (lo + hi + 1n) / 2n
     if (await callSucceeds(mid)) lo = mid
     else hi = mid - 1n
@@ -372,7 +383,7 @@ let reserveCache: { at: number; reserves: Map<string, PoolReserves> } = {
   at: 0,
   reserves: new Map(),
 }
-const RESERVE_CACHE_MS = 5 * 60 * 1000
+const RESERVE_CACHE_MS = 30 * 60 * 1000
 
 function ensureReserveCacheFresh(): void {
   if (Date.now() - reserveCache.at < RESERVE_CACHE_MS) return
@@ -403,13 +414,13 @@ async function getPoolReserves(tokenAddress: string): Promise<PoolReserves> {
   if (cached) return cached
 
   const out1 = await getBuyOutputCached(tokenAddress, '1')
-  const out10 = await getBuyOutputCached(tokenAddress, '10')
+  const out2 = await getBuyOutputCached(tokenAddress, '2')
 
   const reserves = reservesFromTwoBuys(
     Number(formatUnits(out1, 18)),
     1,
-    Number(formatUnits(out10, 18)),
-    10,
+    Number(formatUnits(out2, 18)),
+    2,
   )
   if (!reserves) {
     throw new Error('Could not derive SidraDX pool reserves for this token.')
