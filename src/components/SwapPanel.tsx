@@ -9,6 +9,7 @@ import {
 import { parseEther, type Address } from 'viem'
 import { erc20Abi, wsdaAbi } from '../config/abis'
 import { TokenSelect } from './TokenSelect'
+import { LoadingDots, LoadingLabel } from './LoadingDots'
 import { useAppConfig } from '../hooks/useAppConfig'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useTokenBalances } from '../hooks/useTokenBalances'
@@ -408,7 +409,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         </label>
         <div className="flex items-center gap-2">
           <div className="text-2xl font-black text-slate-300 flex-1">
-            {quoteLoading ? '…' : Number(outputAmount).toFixed(4)}
+            {quoteLoading ? <LoadingDots className="text-2xl" /> : Number(outputAmount).toFixed(4)}
           </div>
           <TokenSelect
             value={toToken}
@@ -461,10 +462,10 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
             ? 'Enter Amount'
             : isBusy
               ? step === 'fee'
-                ? 'Paying fee…'
+                ? <LoadingLabel text="Paying fee" />
                 : step === 'approve'
-                  ? 'Approving token…'
-                  : 'Swapping on SidraDX…'
+                  ? <LoadingLabel text="Approving token" />
+                  : <LoadingLabel text="Swapping on SidraDX" />
               : 'Swap on SidraDX'}
       </button>
 
