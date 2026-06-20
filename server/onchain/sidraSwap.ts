@@ -259,6 +259,8 @@ async function simulateBuyOutput(
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 20)
   const token = tokenAddress as Address
   const amountIn = Number(amountInSda)
+  const estimateTokens = amountIn * (tokensPerSdaHint ?? 4)
+  const maxOut = parseEther(String(Math.max(estimateTokens * 3, 10)))
 
   async function callSucceeds(minOut: bigint): Promise<boolean> {
     const data = encodeSidraBuyCall(token, SIDRA_SWAP_SLIPPAGE_PARAM, minOut, deadline)
@@ -274,30 +276,17 @@ async function simulateBuyOutput(
     }
   }
 
-  const estimateTokens = amountIn * (tokensPerSdaHint ?? 4)
-  const maxOut = parseEther(String(Math.max(estimateTokens * 2.5, 10)))
-
   let lo = 0n
-  let hi = parseEther(Math.max(estimateTokens * 1.2, 0.01).toFixed(8))
-  if (hi > maxOut) hi = maxOut
+  let hi = 1n
 
-  if (!(await callSucceeds(hi))) {
-    hi = parseEther(Math.max(estimateTokens * 0.6, 0.01).toFixed(8))
-    if (!(await callSucceeds(hi))) {
-      let probe = 1n
-      while (probe < maxOut && (await callSucceeds(probe))) {
-        lo = probe
-        probe *= 2n
-      }
-      return lo
-    }
+  while (hi < maxOut && (await callSucceeds(hi))) {
+    lo = hi
+    hi *= 2n
   }
 
-  lo = parseEther(Math.max(estimateTokens * 0.8, 0.005).toFixed(8))
-  if (!(await callSucceeds(lo))) lo = 0n
+  if (hi >= maxOut) hi = maxOut
 
-  const tolerance = parseEther('0.00001')
-  while (lo < hi && hi - lo > tolerance) {
+  while (lo < hi) {
     const mid = (lo + hi + 1n) / 2n
     if (await callSucceeds(mid)) lo = mid
     else hi = mid - 1n
@@ -319,7 +308,9 @@ async function getBuyOutputCached(tokenAddress: string, amountInSda: string): Pr
   }
 
   const out = await simulateBuyOutput(tokenAddress, amountInSda, hint)
-  buyOutputCache.set(key, { at: Date.now(), out })
+  if (out > 0n) {
+    buyOutputCache.set(key, { at: Date.now(), out })
+  }
   return out
 }
 
