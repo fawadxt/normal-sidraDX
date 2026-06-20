@@ -248,11 +248,17 @@ async function findBuyRateFromExplorer(tokenKey: string): Promise<TokenRate | nu
   return null
 }
 
-async function simulateBuyOutput(tokenAddress: string, amountInSda: string): Promise<bigint> {
+const buyOutputCache = new Map<string, { at: number; out: bigint }>()
+
+async function simulateBuyOutput(
+  tokenAddress: string,
+  amountInSda: string,
+  tokensPerSdaHint?: number,
+): Promise<bigint> {
   const value = parseEther(amountInSda)
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 20)
   const token = tokenAddress as Address
-  const maxOut = parseEther(String(Math.max(Number(amountInSda) * 50, 5)))
+  const amountIn = Number(amountInSda)
 
   async function callSucceeds(minOut: bigint): Promise<boolean> {
     const data = encodeSidraBuyCall(token, SIDRA_SWAP_SLIPPAGE_PARAM, minOut, deadline)
@@ -268,28 +274,53 @@ async function simulateBuyOutput(tokenAddress: string, amountInSda: string): Pro
     }
   }
 
+  const estimateTokens = amountIn * (tokensPerSdaHint ?? 4)
+  const maxOut = parseEther(String(Math.max(estimateTokens * 2.5, 10)))
+
   let lo = 0n
-  let hi = 1n
+  let hi = parseEther(Math.max(estimateTokens * 1.2, 0.01).toFixed(8))
+  if (hi > maxOut) hi = maxOut
 
-  while (hi < maxOut && (await callSucceeds(hi))) {
-    lo = hi
-    hi *= 2n
-  }
-
-  if (hi >= maxOut) {
-    hi = maxOut
-  }
-
-  while (lo < hi) {
-    const mid = (lo + hi + 1n) / 2n
-    if (await callSucceeds(mid)) {
-      lo = mid
-    } else {
-      hi = mid - 1n
+  if (!(await callSucceeds(hi))) {
+    hi = parseEther(Math.max(estimateTokens * 0.6, 0.01).toFixed(8))
+    if (!(await callSucceeds(hi))) {
+      let probe = 1n
+      while (probe < maxOut && (await callSucceeds(probe))) {
+        lo = probe
+        probe *= 2n
+      }
+      return lo
     }
   }
 
+  lo = parseEther(Math.max(estimateTokens * 0.8, 0.005).toFixed(8))
+  if (!(await callSucceeds(lo))) lo = 0n
+
+  const tolerance = parseEther('0.00001')
+  while (lo < hi && hi - lo > tolerance) {
+    const mid = (lo + hi + 1n) / 2n
+    if (await callSucceeds(mid)) lo = mid
+    else hi = mid - 1n
+  }
+
   return lo
+}
+
+async function getBuyOutputCached(tokenAddress: string, amountInSda: string): Promise<bigint> {
+  const key = `${normalizeAddress(tokenAddress)}:${amountInSda}`
+  const hit = buyOutputCache.get(key)
+  if (hit && Date.now() - hit.at < RESERVE_CACHE_MS) return hit.out
+
+  let hint: number | undefined
+  if (amountInSda !== '1') {
+    const oneKey = `${normalizeAddress(tokenAddress)}:1`
+    const oneHit = buyOutputCache.get(oneKey)
+    if (oneHit) hint = Number(formatUnits(oneHit.out, 18))
+  }
+
+  const out = await simulateBuyOutput(tokenAddress, amountInSda, hint)
+  buyOutputCache.set(key, { at: Date.now(), out })
+  return out
 }
 
 async function getTokenRate(tokenAddress: string): Promise<TokenRate> {
@@ -311,7 +342,7 @@ async function getTokenRate(tokenAddress: string): Promise<TokenRate> {
     return fromBuy
   }
 
-  const simulatedOut = await simulateBuyOutput(tokenAddress, '1')
+  const simulatedOut = await getBuyOutputCached(tokenAddress, '1')
   if (simulatedOut === 0n) {
     throw new Error(
       'SidraDX swap simulation failed for this token. It may not be listed in the Sidra pool yet.',
@@ -331,9 +362,9 @@ export async function quoteSidraBuy(
   amountInSda: string,
   slippageBps: number,
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
-  const rate = await getTokenRate(tokenAddress)
+  const reserves = await getPoolReserves(tokenAddress)
   const amountIn = Number(amountInSda)
-  const amountOut = amountIn * rate.tokenPerSda
+  const amountOut = estimateBuyOutput(amountIn, reserves)
   const amountOutWei = parseEther(amountOut.toFixed(18))
   const minOut = (amountOutWei * BigInt(10000 - slippageBps)) / 10000n
 
@@ -344,21 +375,65 @@ export async function quoteSidraBuy(
   }
 }
 
-function estimateWsdaFromSell(tokenIn: number, rate: TokenRate): number {
-  if (rate.source === 'sell') {
-    // tokenPerSda = (tokenIn / minWsda) * 0.99  →  minWsda ≈ tokenIn / tokenPerSda * 0.99
-    return (tokenIn / rate.tokenPerSda) * 0.99
-  }
-  // Buy/simulated rate: apply pool fee haircut so minOut is not too aggressive
-  return (tokenIn / rate.tokenPerSda) * 0.97
+type PoolReserves = { x: number; y: number }
+
+let reserveCache: { at: number; reserves: Map<string, PoolReserves> } = {
+  at: 0,
+  reserves: new Map(),
+}
+const RESERVE_CACHE_MS = 5 * 60 * 1000
+
+function ensureReserveCacheFresh(): void {
+  if (Date.now() - reserveCache.at < RESERVE_CACHE_MS) return
+  reserveCache = { at: Date.now(), reserves: new Map() }
 }
 
-function sellMinOutMultiplierBps(tokenIn: number): bigint {
-  if (tokenIn <= 50) return 9000n
-  if (tokenIn <= 250) return 7500n
-  if (tokenIn <= 1000) return 6000n
-  if (tokenIn <= 5000) return 5000n
-  return 4200n
+function reservesFromTwoBuys(
+  tSmall: number,
+  sSmall: number,
+  tLarge: number,
+  sLarge: number,
+): PoolReserves | null {
+  const denom = tSmall / sSmall - tLarge / sLarge
+  if (Math.abs(denom) < 1e-12) return null
+
+  const y = (tLarge - tSmall) / denom
+  const x = (tSmall * (y + sSmall)) / sSmall
+  if (!Number.isFinite(x) || !Number.isFinite(y) || x <= 0 || y <= 0) return null
+
+  return { x, y }
+}
+
+async function getPoolReserves(tokenAddress: string): Promise<PoolReserves> {
+  const key = normalizeAddress(tokenAddress)
+  ensureReserveCacheFresh()
+
+  const cached = reserveCache.reserves.get(key)
+  if (cached) return cached
+
+  const out1 = await getBuyOutputCached(tokenAddress, '1')
+  const out10 = await getBuyOutputCached(tokenAddress, '10')
+
+  const reserves = reservesFromTwoBuys(
+    Number(formatUnits(out1, 18)),
+    1,
+    Number(formatUnits(out10, 18)),
+    10,
+  )
+  if (!reserves) {
+    throw new Error('Could not derive SidraDX pool reserves for this token.')
+  }
+
+  reserveCache.reserves.set(key, reserves)
+  return reserves
+}
+
+function estimateBuyOutput(sdaIn: number, reserves: PoolReserves): number {
+  return (reserves.x * sdaIn) / (reserves.y + sdaIn)
+}
+
+function estimateSellOutput(tokenIn: number, reserves: PoolReserves): number {
+  return (reserves.y * tokenIn) / (reserves.x + tokenIn)
 }
 
 export async function quoteSidraSell(
@@ -366,15 +441,12 @@ export async function quoteSidraSell(
   amountIn: string,
   slippageBps: number,
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
-  const rate = await getTokenRate(tokenAddress)
+  const reserves = await getPoolReserves(tokenAddress)
   const tokenIn = Number(amountIn)
-  const wsdaOut = estimateWsdaFromSell(tokenIn, rate)
+  const wsdaOut = estimateSellOutput(tokenIn, reserves)
   const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
-  const sellSlippageBps = Math.max(slippageBps, 1500)
-  const minOut =
-    (((wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n) *
-      sellMinOutMultiplierBps(tokenIn)) /
-    10000n
+  const sellSlippageBps = Math.max(slippageBps, 500)
+  const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
 
   return {
     amountOut: wsdaOut.toString(),
