@@ -46,7 +46,7 @@ In MetaMask / SafePal add network:
 ```
 _sidraSwap:     0xF4B3E8281e1Af643c6Db379FDE67938a4Ce1F822
 _wsda:          0xE4095a910209D7BE03B55D02F40d4554B1666182
-_feeRecipient:  0xYOUR_FEE_WALLET_ADDRESS
+_feeRecipient:  0xf5cc15904c33E392a0e50d965e1BcC52b5530e86
 ```
 
 5. **Gas limit:** turn off auto and set **`1200000`** (~0.6 SDA fee; enough for this contract on paris EVM)
