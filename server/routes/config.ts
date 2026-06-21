@@ -1,6 +1,7 @@
 import { Router } from 'express'
 
 import { SIDRA_TOKENS } from '../config/tokens.js'
+import { SWAP_FEE_NOTICE } from '../../shared/platformFee.js'
 
 import type { AppConfig } from '../types.js'
 
@@ -45,7 +46,7 @@ configRouter.get('/', (_req, res) => {
 
     chainName: process.env.CHAIN_NAME ?? 'Sidra Chain',
 
-    swapFeeAmount: '1%/1.5%/2%',
+    swapFeeAmount: SWAP_FEE_NOTICE,
 
     swapFeeRecipient: isValidRecipient ? feeRecipient : null,
 

@@ -17,8 +17,7 @@ import { recordSwap } from '../lib/api'
 import type { SwapQuote } from '../lib/api'
 import {
   calculatePlatformFeeWei,
-  formatPlatformFeeSummary,
-  PLATFORM_FEE_TIER_DESCRIPTION,
+  SWAP_FEE_NOTICE,
 } from '../../shared/platformFee'
 import {
   encodeSidraBuyCall,
@@ -117,10 +116,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     quote && amountIn && Number(amountIn) > 0
       ? calculatePlatformFeeWei(fromToken, toToken, amountIn, quote.amountOut)
       : 0n
-  const platformFeeLabel =
-    quote && amountIn && Number(amountIn) > 0
-      ? formatPlatformFeeSummary(fromToken, toToken, amountIn, quote.amountOut)
-      : PLATFORM_FEE_TIER_DESCRIPTION
   const effectiveSwapWei = getEffectiveSwapWei(fromToken, amountIn, balancesWei)
   const totalNeeded = effectiveSwapWei + (fromToken === 'SDA' ? swapFeeWei : 0n)
 
@@ -455,9 +450,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
           />
         </div>
         {fromToken === 'SDA' && canUseMax && (
-          <p className="text-[10px] text-slate-600 mt-2 font-mono">
-            Max reserves platform fee ({PLATFORM_FEE_TIER_DESCRIPTION})
-          </p>
+          <p className="text-[10px] text-slate-600 mt-2">{SWAP_FEE_NOTICE}</p>
         )}
       </div>
 
@@ -499,13 +492,26 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         )}
       </div>
 
-      <p className="px-1 text-[11px] text-slate-500">
-        {quote && amountIn && Number(amountIn) > 0
-          ? `${platformFeeLabel}${autoFeeSwap ? ' · one-click swap' : ''}`
-          : useFeeRouter
-            ? `Platform fee: ${PLATFORM_FEE_TIER_DESCRIPTION} · auto-deducted`
-            : `Platform fee: ${PLATFORM_FEE_TIER_DESCRIPTION}`}
-      </p>
+      {isFeeConfigured && (
+        <div
+          className="p-3.5 bg-slate-900/90 border border-cyan-900/50 rounded-2xl text-xs text-slate-300 space-y-2"
+          role="note"
+          aria-live="polite"
+        >
+          <p className="text-[13px] leading-relaxed text-slate-200 font-medium">
+            {SWAP_FEE_NOTICE}
+          </p>
+          {quote && amountIn && Number(amountIn) > 0 && swapFeeWei > 0n && (
+            <div className="pt-2 border-t border-slate-800 space-y-1 font-mono text-[11px] text-slate-400">
+              <p>Transaction summary</p>
+              <p>
+                Estimated swapping fee: ~{Number(formatUnits(swapFeeWei, 18)).toFixed(4)} SDA
+              </p>
+              {autoFeeSwap && <p>Fee is included in one swap transaction.</p>}
+            </div>
+          )}
+        </div>
+      )}
 
       {!isFeeConfigured && (
         <div className="p-3 bg-amber-950/40 border border-amber-900 text-amber-400 rounded-2xl text-xs font-mono">
@@ -548,10 +554,13 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       </button>
 
       {!hasEnoughBalance && amountIn && Number(amountIn) > 0 && isConnected && (
-        <div className="p-3 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs font-mono">
-          Insufficient balance for swap + platform fee.
-          {quote && amountIn && (
-            <span className="block mt-1 text-rose-300/90">{platformFeeLabel}</span>
+        <div className="p-3 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs">
+          <p>Insufficient balance for swap + swapping fee.</p>
+          <p className="mt-2 text-rose-300/90">{SWAP_FEE_NOTICE}</p>
+          {quote && amountIn && swapFeeWei > 0n && (
+            <p className="mt-2 font-mono text-rose-300/90">
+              Estimated fee: ~{Number(formatUnits(swapFeeWei, 18)).toFixed(4)} SDA
+            </p>
           )}
           {fromToken !== 'SDA' && canUseMax && (
             <span className="block mt-1 text-rose-300/90">

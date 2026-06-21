@@ -6,8 +6,11 @@ export const PLATFORM_FEE_BPS_LOW = 100
 export const PLATFORM_FEE_BPS_MID = 150
 export const PLATFORM_FEE_BPS_HIGH = 200
 
-export const PLATFORM_FEE_TIER_DESCRIPTION =
-  '1% under 300 SDA · 1.5% at 300–500 SDA · 2% at 500+'
+export const SWAP_FEE_NOTICE =
+  'Please ensure you have at least 2% of the amount in your wallet to cover the swapping fee.'
+
+/** @deprecated Use SWAP_FEE_NOTICE for UI copy. */
+export const PLATFORM_FEE_TIER_DESCRIPTION = SWAP_FEE_NOTICE
 
 export function getPlatformFeeBps(sdaNotional: number): number {
   if (sdaNotional <= 0) return 0
@@ -65,9 +68,8 @@ export function formatPlatformFeeSummary(
   amountOut: string,
 ): string {
   const feeSda = calculatePlatformFeeSda(fromToken, toToken, amountIn, amountOut)
-  const notional = getSwapSdaNotional(fromToken, toToken, amountIn, amountOut)
-  if (feeSda <= 0) return PLATFORM_FEE_TIER_DESCRIPTION
-  return `${formatPlatformFeeRate(notional)} platform fee (~${feeSda.toFixed(4)} SDA)`
+  if (feeSda <= 0) return SWAP_FEE_NOTICE
+  return `${SWAP_FEE_NOTICE} Estimated fee: ~${feeSda.toFixed(4)} SDA.`
 }
 
 export function maxSdaSwapFromBalance(balanceWei: bigint): string {

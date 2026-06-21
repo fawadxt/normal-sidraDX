@@ -1,4 +1,6 @@
-export const SWAP_FEE_AMOUNT = '1%/1.5%/2%'
+import { SWAP_FEE_NOTICE } from '../../shared/platformFee'
+
+export const SWAP_FEE_AMOUNT = SWAP_FEE_NOTICE
 
 export const FEE_ROUTER_ADDRESS = import.meta.env.VITE_FEE_ROUTER_ADDRESS as `0x${string}` | undefined
 
