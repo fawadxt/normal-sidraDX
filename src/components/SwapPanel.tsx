@@ -72,6 +72,13 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const [pendingQuote, setPendingQuote] = useState<SwapQuote | null>(null)
   const recordedRef = useRef<string | null>(null)
 
+  const feeWalletAddress = (config.swapFeeRecipient ?? feeRecipient) as Address | null
+  const isFeeWalletConnected =
+    isConnected &&
+    !!address &&
+    !!feeWalletAddress &&
+    address.toLowerCase() === feeWalletAddress.toLowerCase()
+
   const swapAddress = (config.sidraSwapAddress ?? SIDRA_SWAP_ADDRESS) as Address
   const feeRouterAddress = config.feeRouterAddress as Address | null
   const useFeeRouter = !!feeRouterAddress
@@ -519,6 +526,13 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         </div>
       )}
 
+      {isFeeWalletConnected && (
+        <div className="p-3.5 bg-amber-950/50 border border-amber-700 text-amber-300 rounded-2xl text-xs leading-relaxed">
+          You connected the fee collection wallet. Swaps must use a different wallet, or the
+          platform fee is sent back to the same address and you will not see fee income.
+        </div>
+      )}
+
       {quoteError && amountIn && (
         <div className="p-3 bg-amber-950/40 border border-amber-900 text-amber-400 rounded-2xl text-xs">
           {quoteError}
@@ -530,6 +544,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         onClick={handleSwapClick}
         disabled={
           isBusy ||
+          isFeeWalletConnected ||
           (isConnected &&
             (!amountIn ||
               Number(amountIn) <= 0 ||
@@ -544,6 +559,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
           ? 'Connect Wallet'
           : !amountIn
             ? 'Enter Amount'
+            : isFeeWalletConnected
+              ? 'Use a different wallet to swap'
             : isBusy
               ? step === 'fee'
                 ? <LoadingLabel text="Paying fee" />
