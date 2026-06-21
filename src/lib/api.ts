@@ -11,6 +11,7 @@ export type AppConfig = {
   chainName: string
   swapFeeAmount: string
   swapFeeRecipient: string | null
+  feeRouterAddress: string | null
   exchangeRate: number
   tokenAddress: string
   routerAddress: string | null
@@ -66,6 +67,7 @@ export async function recordSwap(payload: {
   walletAddress: string
   inputAmount: string
   outputAmount: string
+  feeAmount: string
   feeTxHash: string
   swapTxHash?: string
   fromToken?: string

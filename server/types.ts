@@ -58,6 +58,8 @@ export type AppConfig = {
 
   swapFeeRecipient: string | null
 
+  feeRouterAddress: string | null
+
   exchangeRate: number
 
   tokenAddress: string

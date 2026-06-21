@@ -1,13 +1,17 @@
 import { useEffect, useState } from 'react'
 import { fetchConfig, type AppConfig } from '../lib/api'
-import { SWAP_FEE_AMOUNT, SWAP_FEE_RECIPIENT, isSwapFeeConfigured } from '../config/constants'
+import { FEE_ROUTER_ADDRESS, SWAP_FEE_AMOUNT, SWAP_FEE_RECIPIENT, isSwapFeeConfigured } from '../config/constants'
 import { SIDRA_TOKENS } from '../../shared/tokens'
 
 const fallbackConfig: AppConfig = {
   chainId: 97453,
   chainName: 'Sidra Chain',
   swapFeeAmount: SWAP_FEE_AMOUNT,
-  swapFeeRecipient: isSwapFeeConfigured ? SWAP_FEE_RECIPIENT! : null,
+  swapFeeRecipient: isSwapFeeConfigured ? SWAP_FEE_RECIPIENT ?? null : null,
+  feeRouterAddress:
+    FEE_ROUTER_ADDRESS && FEE_ROUTER_ADDRESS.startsWith('0x') && FEE_ROUTER_ADDRESS.length === 42
+      ? FEE_ROUTER_ADDRESS
+      : null,
   exchangeRate: 2.5,
   tokenAddress: '0xE4095a910209D7BE03B55D02F40d4554B1666182',
   routerAddress: null,
@@ -50,8 +54,10 @@ export function useAppConfig() {
   }, [])
 
   const feeRecipient = config.swapFeeRecipient as `0x${string}` | null
+  const feeRouterAddress = config.feeRouterAddress as `0x${string}` | null
   const isFeeConfigured =
-    !!feeRecipient && feeRecipient.startsWith('0x') && feeRecipient.length === 42
+    (!!feeRecipient && feeRecipient.startsWith('0x') && feeRecipient.length === 42) ||
+    (!!feeRouterAddress && feeRouterAddress.startsWith('0x') && feeRouterAddress.length === 42)
 
   return { config, isLoading, error, feeRecipient, isFeeConfigured }
 }

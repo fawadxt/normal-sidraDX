@@ -29,6 +29,10 @@ configRouter.get('/', (_req, res) => {
   const sidraSwapAddress =
     process.env.SIDRA_SWAP_CONTRACT?.trim() || '0xF4B3E8281e1Af643c6Db379FDE67938a4Ce1F822'
 
+  const feeRouterAddress = process.env.FEE_ROUTER_ADDRESS?.trim() || null
+  const isValidFeeRouter =
+    !!feeRouterAddress && feeRouterAddress.startsWith('0x') && feeRouterAddress.length === 42
+
   const isValidSidraSwap =
 
     !!sidraSwapAddress && sidraSwapAddress.startsWith('0x') && sidraSwapAddress.length === 42
@@ -41,9 +45,11 @@ configRouter.get('/', (_req, res) => {
 
     chainName: process.env.CHAIN_NAME ?? 'Sidra Chain',
 
-    swapFeeAmount: process.env.SWAP_FEE_AMOUNT ?? '0.1',
+    swapFeeAmount: '1%/1.5%/2%',
 
     swapFeeRecipient: isValidRecipient ? feeRecipient : null,
+
+    feeRouterAddress: isValidFeeRouter ? feeRouterAddress : null,
 
     exchangeRate: Number(process.env.SWAP_EXCHANGE_RATE ?? 2.5),
 

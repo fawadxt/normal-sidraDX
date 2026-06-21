@@ -1,6 +1,7 @@
 import { useBalance, useReadContracts } from 'wagmi'
-import { formatUnits, parseEther, type Address } from 'viem'
+import { formatUnits, type Address } from 'viem'
 import { erc20Abi } from '../config/abis'
+import { maxSdaSwapFromBalance } from '../../shared/platformFee'
 import type { SwapToken } from '../lib/api'
 
 export function formatTokenBalance(value: bigint | undefined, decimals = 18): string {
@@ -21,11 +22,7 @@ export function trimAmountInput(formatted: string): string {
   return formatted.replace(/\.?0+$/, '')
 }
 
-export function useTokenBalances(
-  address: Address | undefined,
-  tokens: SwapToken[],
-  swapFeeAmount: string,
-) {
+export function useTokenBalances(address: Address | undefined, tokens: SwapToken[]) {
   const { data: nativeBalance, isLoading: nativeLoading } = useBalance({ address })
 
   const erc20Tokens = tokens.filter((t) => t.address)
@@ -62,10 +59,8 @@ export function useTokenBalances(
 
   const getMaxSwapAmount = (symbol: string): string => {
     if (symbol === 'SDA') {
-      const fee = parseEther(swapFeeAmount || '0.1')
       const balance = balancesWei.SDA ?? 0n
-      if (balance <= fee) return '0'
-      return trimAmountInput(formatUnits(balance - fee, 18))
+      return maxSdaSwapFromBalance(balance)
     }
 
     const balance = balancesWei[symbol] ?? 0n

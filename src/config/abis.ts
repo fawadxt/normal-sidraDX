@@ -106,3 +106,37 @@ export const routerAbi = [
     outputs: [{ name: 'amounts', type: 'uint256[]' }],
   },
 ] as const
+
+export const feeRouterAbi = [
+  {
+    name: 'sidraBuyWithFee',
+    type: 'function',
+    stateMutability: 'payable',
+    inputs: [
+      { name: 'token', type: 'address' },
+      { name: 'swapSdaAmount', type: 'uint256' },
+      { name: 'minOut', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'sidraSellWithFee',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: 'token', type: 'address' },
+      { name: 'tokenAmount', type: 'uint256' },
+      { name: 'minWsdaOut', type: 'uint256' },
+      { name: 'deadline', type: 'uint256' },
+    ],
+    outputs: [],
+  },
+  {
+    name: 'platformFee',
+    type: 'function',
+    stateMutability: 'pure',
+    inputs: [{ name: 'notionalWei', type: 'uint256' }],
+    outputs: [{ type: 'uint256' }],
+  },
+] as const

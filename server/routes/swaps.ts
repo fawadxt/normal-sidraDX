@@ -1,5 +1,6 @@
 import { Router } from 'express'
 import { z } from 'zod'
+import { calculatePlatformFeeSda } from '../../shared/platformFee.js'
 import { createSwap, getSwapStats, listSwaps } from '../db.js'
 
 export const swapsRouter = Router()
@@ -8,6 +9,7 @@ const createSwapSchema = z.object({
   walletAddress: z.string().regex(/^0x[a-fA-F0-9]{40}$/),
   inputAmount: z.string().min(1),
   outputAmount: z.string().min(1),
+  feeAmount: z.string().min(1).optional(),
   feeTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/),
   swapTxHash: z.string().regex(/^0x[a-fA-F0-9]{64}$/).optional(),
   fromToken: z.string().optional(),
@@ -31,7 +33,16 @@ swapsRouter.post('/', (req, res) => {
     return
   }
 
-  const feeAmount = process.env.SWAP_FEE_AMOUNT ?? '0.1'
+  const feeAmount =
+    parsed.data.feeAmount ??
+    String(
+      calculatePlatformFeeSda(
+        parsed.data.fromToken ?? 'SDA',
+        parsed.data.toToken ?? 'WSDA',
+        parsed.data.inputAmount,
+        parsed.data.outputAmount,
+      ),
+    )
   const swap = createSwap({
     ...parsed.data,
     feeAmount,
