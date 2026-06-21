@@ -7,7 +7,7 @@ import {
   useWriteContract,
 } from 'wagmi'
 import { formatUnits, parseEther, type Address } from 'viem'
-import { erc20Abi, feeRouterAbi, wsdaAbi } from '../config/abis'
+import { erc20Abi, wsdaAbi } from '../config/abis'
 import { TokenSelect } from './TokenSelect'
 import { LoadingLabel } from './LoadingDots'
 import { useAppConfig } from '../hooks/useAppConfig'
@@ -64,7 +64,7 @@ function routeLabel(routeType?: SwapQuote['routeType']): string {
 }
 
 export function SwapPanel({ isConnected, address, onConnect }: Props) {
-  const { config, feeRecipient, isFeeConfigured } = useAppConfig()
+  const { config, isFeeConfigured } = useAppConfig()
   const [fromToken, setFromToken] = useState('SDA')
   const [toToken, setToToken] = useState('WSDA')
   const [amountIn, setAmountIn] = useState('')
@@ -72,7 +72,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const [pendingQuote, setPendingQuote] = useState<SwapQuote | null>(null)
   const recordedRef = useRef<string | null>(null)
 
-  const feeWalletAddress = (config.swapFeeRecipient ?? feeRecipient) as Address | null
+  const feeWalletAddress = config.swapFeeRecipient as Address | null
   const isFeeWalletConnected =
     isConnected &&
     !!address &&
@@ -80,8 +80,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     address.toLowerCase() === feeWalletAddress.toLowerCase()
 
   const swapAddress = (config.sidraSwapAddress ?? SIDRA_SWAP_ADDRESS) as Address
-  const feeRouterAddress = config.feeRouterAddress as Address | null
-  const useFeeRouter = !!feeRouterAddress
 
   const { quote, isLoading: quoteLoading, error: quoteError } = useSwapQuote(
     fromToken,
@@ -89,9 +87,13 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     amountIn,
   )
 
-  const autoFeeSwap =
-    useFeeRouter && quote?.routeType === 'sidra-buy'
-  const swapSpender = (autoFeeSwap ? feeRouterAddress : swapAddress) as Address
+  const needsPoolFee =
+    quote?.routeType === 'sidra-buy' ||
+    quote?.routeType === 'sidra-sell' ||
+    quote?.routeType === 'wrap' ||
+    quote?.routeType === 'unwrap'
+
+  const swapSpender = swapAddress as Address
 
   const { data: nativeBalance } = useBalance({ address })
   const { balances, balancesWei, getMaxSwapAmount } = useTokenBalances(address, config.tokens)
@@ -135,7 +137,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     (fromToken === 'SDA'
       ? nativeBalance.value >= totalNeeded
       : (balancesWei[fromToken] ?? 0n) >= effectiveSwapWei &&
-        (autoFeeSwap || nativeBalance.value >= swapFeeWei))
+        nativeBalance.value >= swapFeeWei)
 
   const {
     data: feeTxHash,
@@ -194,18 +196,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         const token = toMeta?.address as Address
         if (!token) return
 
-        if (autoFeeSwap && feeRouterAddress) {
-          const swapSda = parseEther(amountIn)
-          writeContract({
-            address: feeRouterAddress,
-            abi: feeRouterAbi,
-            functionName: 'sidraBuyWithFee',
-            args: [token, swapSda, minOut, deadline],
-            value: swapSda + swapFeeWei,
-          })
-          return
-        }
-
         sendSwap({
           to: swapAddress,
           value: parseEther(amountIn),
@@ -219,16 +209,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         if (!token) return
 
         const amountWei = getEffectiveSwapWei(fromToken, amountIn, balancesWei)
-
-        if (autoFeeSwap && feeRouterAddress) {
-          writeContract({
-            address: feeRouterAddress,
-            abi: feeRouterAbi,
-            functionName: 'sidraSellWithFee',
-            args: [token, amountWei, minOut, deadline],
-          })
-          return
-        }
 
         sendSwap({
           to: swapAddress,
@@ -245,16 +225,12 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     [
       address,
       amountIn,
-      autoFeeSwap,
       balancesWei,
-      feeRouterAddress,
       fromMeta?.address,
       fromToken,
       sendSwap,
       swapAddress,
-      swapFeeWei,
       toMeta?.address,
-      writeContract,
     ],
   )
 
@@ -328,17 +304,12 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     }
     if (!amountIn || Number(amountIn) <= 0 || !quote || !isFeeConfigured) return
     if (!hasEnoughBalance) return
-    if (swapFeeWei <= 0n && quote.routeType !== 'sidra-sell') return
-    if (!autoFeeSwap && !feeRecipient) return
+    if (needsPoolFee && swapFeeWei <= 0n) return
+    if (!feeWalletAddress) return
 
     setPendingQuote(quote)
-    if (autoFeeSwap) {
-      runSwapStep(quote)
-      return
-    }
-
     setStep('fee')
-    sendFee({ to: feeRecipient!, value: swapFeeWei })
+    sendFee({ to: feeWalletAddress, value: swapFeeWei })
   }
 
   useEffect(() => {
@@ -354,7 +325,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
 
   useEffect(() => {
     if (!swapSuccess || !address || !amountIn) return
-    const recordKey = autoFeeSwap ? activeSwapHash : feeTxHash
+    const recordKey = feeTxHash
     if (!recordKey) return
     if (recordedRef.current === recordKey) return
     recordedRef.current = recordKey
@@ -375,7 +346,6 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     setPendingQuote(null)
   }, [
     swapSuccess,
-    autoFeeSwap,
     feeTxHash,
     activeSwapHash,
     address,
@@ -514,7 +484,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
               <p>
                 Estimated swapping fee: ~{Number(formatUnits(swapFeeWei, 18)).toFixed(4)} SDA
               </p>
-              {autoFeeSwap && <p>Fee is included in one swap transaction.</p>}
+              {needsPoolFee && <p>Platform fee is sent before the swap transaction.</p>}
             </div>
           )}
         </div>
@@ -587,12 +557,11 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         </div>
       )}
 
-      {swapSuccess && (autoFeeSwap ? activeSwapHash : feeTxHash) && step === 'idle' && (
+      {swapSuccess && feeTxHash && step === 'idle' && (
         <div className="p-3.5 bg-emerald-950/40 border border-emerald-900 text-emerald-400 rounded-2xl text-xs font-mono break-all space-y-1">
           <p>Swap complete on Sidra Chain</p>
           {activeSwapHash && <p>Swap tx: {activeSwapHash}</p>}
-          {!autoFeeSwap && feeTxHash && <p>Fee tx: {feeTxHash}</p>}
-          {autoFeeSwap && <p>Platform fee included in swap tx</p>}
+          <p>Fee tx: {feeTxHash}</p>
         </div>
       )}
 
