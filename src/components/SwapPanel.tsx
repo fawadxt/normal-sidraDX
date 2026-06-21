@@ -83,8 +83,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   )
 
   const autoFeeSwap =
-    useFeeRouter &&
-    (quote?.routeType === 'sidra-buy' || quote?.routeType === 'sidra-sell')
+    useFeeRouter && quote?.routeType === 'sidra-buy'
   const swapSpender = (autoFeeSwap ? feeRouterAddress : swapAddress) as Address
 
   const { data: nativeBalance } = useBalance({ address })
@@ -321,7 +320,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       return
     }
     if (!amountIn || Number(amountIn) <= 0 || !quote || !isFeeConfigured) return
-    if (!hasEnoughBalance || swapFeeWei <= 0n) return
+    if (!hasEnoughBalance) return
+    if (swapFeeWei <= 0n && quote.routeType !== 'sidra-sell') return
     if (!autoFeeSwap && !feeRecipient) return
 
     setPendingQuote(quote)

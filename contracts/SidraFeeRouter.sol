@@ -99,6 +99,7 @@ contract SidraFeeRouter {
         require(IERC20(token).approve(sidraSwap, tokenAmount), "approve failed");
 
         uint256 wsdaBefore = IERC20(wsda).balanceOf(address(this));
+        uint256 sdaBefore = address(this).balance;
 
         bytes memory data = abi.encodeWithSelector(
             SIDRA_SELL_SELECTOR,
@@ -113,13 +114,27 @@ contract SidraFeeRouter {
         require(ok, "sidra sell failed");
 
         uint256 wsdaOut = IERC20(wsda).balanceOf(address(this)) - wsdaBefore;
-        uint256 fee = platformFee(wsdaOut);
-        require(wsdaOut > fee, "fee exceeds output");
+        uint256 sdaOut = address(this).balance - sdaBefore;
 
-        emit FeeCollected(msg.sender, wsdaOut, fee);
+        if (wsdaOut > 0) {
+            uint256 fee = platformFee(wsdaOut);
+            require(wsdaOut > fee, "fee exceeds output");
 
-        require(IERC20(wsda).transfer(feeRecipient, fee), "fee transfer failed");
-        require(IERC20(wsda).transfer(msg.sender, wsdaOut - fee), "wsda transfer failed");
+            emit FeeCollected(msg.sender, wsdaOut, fee);
+
+            require(IERC20(wsda).transfer(feeRecipient, fee), "fee transfer failed");
+            require(IERC20(wsda).transfer(msg.sender, wsdaOut - fee), "wsda transfer failed");
+            return;
+        }
+
+        require(sdaOut > 0, "no swap output");
+        uint256 sdaFee = platformFee(sdaOut);
+        require(sdaOut > sdaFee, "fee exceeds output");
+
+        emit FeeCollected(msg.sender, sdaOut, sdaFee);
+
+        _sendSda(feeRecipient, sdaFee);
+        _sendSda(msg.sender, sdaOut - sdaFee);
     }
 
     function setFeeRecipient(address next) external onlyOwner {
