@@ -44,6 +44,44 @@ function minOutForExecution(quote: SwapQuote): bigint {
   return (quoted * BigInt(10000 - SELL_EXECUTION_BUFFER_BPS)) / 10000n
 }
 
+const GAS_RESERVE_WEI = parseEther('0.05')
+
+function getInsufficientBalanceMessage(
+  fromToken: string,
+  amountIn: string,
+  effectiveSwapWei: bigint,
+  swapFeeWei: bigint,
+  nativeBalanceWei: bigint,
+  tokenBalanceWei: bigint | undefined,
+): string | null {
+  const native = formatUnits(nativeBalanceWei, 18)
+  const fee = formatUnits(swapFeeWei, 18)
+  const gas = formatUnits(GAS_RESERVE_WEI, 18)
+
+  if (fromToken === 'SDA') {
+    const totalNeeded = effectiveSwapWei + swapFeeWei + GAS_RESERVE_WEI
+    if (nativeBalanceWei < totalNeeded) {
+      const swap = formatUnits(effectiveSwapWei, 18)
+      return `Need ${formatUnits(totalNeeded, 18)} SDA total (${swap} swap + ${fee} fee + ~${gas} gas). You have ${native} native SDA.`
+    }
+    return null
+  }
+
+  if (tokenBalanceWei === undefined) return null
+
+  if (tokenBalanceWei < effectiveSwapWei) {
+    const have = formatUnits(tokenBalanceWei, 18)
+    return `Not enough ${fromToken}. You have ${have}, trying to swap ${amountIn}.`
+  }
+
+  const feeNeeded = swapFeeWei + GAS_RESERVE_WEI
+  if (nativeBalanceWei < feeNeeded) {
+    return `Need ${formatUnits(feeNeeded, 18)} native SDA for fee + gas (fee ~${fee} SDA). You have ${native} native SDA. Fee must be paid in SDA, not WSDA — unwrap WSDA first if needed.`
+  }
+
+  return null
+}
+
 function getEffectiveSwapWei(
   fromToken: string,
   amountIn: string,
@@ -105,7 +143,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const swapSpender = swapAddress as Address
 
   const { data: nativeBalance } = useBalance({ address })
-  const { balances, balancesWei, getMaxSwapAmount } = useTokenBalances(address, config.tokens)
+  const { balances, balancesWei, getMaxSwapAmount, isLoading: balancesLoading } =
+    useTokenBalances(address, config.tokens)
   const fromMeta = config.tokens.find((t) => t.symbol === fromToken)
   const toMeta = config.tokens.find((t) => t.symbol === toToken)
 
@@ -139,14 +178,38 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const maxSwapAmount = getMaxSwapAmount(fromToken)
   const canUseMax = isConnected && Number(maxSwapAmount) > 0
 
+  const fromTokenBalanceWei =
+    fromToken === 'SDA' ? balancesWei.SDA : balancesWei[fromToken]
+  const fromTokenBalanceReady = fromToken === 'SDA' || fromTokenBalanceWei !== undefined
+
   const hasEnoughBalance =
     isConnected &&
+    !balancesLoading &&
+    fromTokenBalanceReady &&
     nativeBalance &&
     effectiveSwapWei > 0n &&
     (fromToken === 'SDA'
-      ? nativeBalance.value >= totalNeeded
-      : (balancesWei[fromToken] ?? 0n) >= effectiveSwapWei &&
-        nativeBalance.value >= swapFeeWei)
+      ? nativeBalance.value >= totalNeeded + GAS_RESERVE_WEI
+      : (fromTokenBalanceWei ?? 0n) >= effectiveSwapWei &&
+        nativeBalance.value >= swapFeeWei + GAS_RESERVE_WEI)
+
+  const insufficientMessage =
+    isConnected &&
+    !balancesLoading &&
+    fromTokenBalanceReady &&
+    nativeBalance &&
+    amountIn &&
+    Number(amountIn) > 0 &&
+    !hasEnoughBalance
+      ? getInsufficientBalanceMessage(
+          fromToken,
+          amountIn,
+          effectiveSwapWei,
+          swapFeeWei,
+          nativeBalance.value,
+          fromTokenBalanceWei,
+        )
+      : null
 
   const {
     data: feeTxHash,
@@ -565,17 +628,16 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
               : 'Swap on SidraDX'}
       </button>
 
-      {!hasEnoughBalance && amountIn && Number(amountIn) > 0 && isConnected && (
+      {insufficientMessage && (
         <div className="p-3 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs">
-          <p>Insufficient balance for swap + swapping fee.</p>
-          <p className="mt-2 text-rose-300/90">{SWAP_FEE_NOTICE}</p>
+          <p>{insufficientMessage}</p>
           {quote && amountIn && swapFeeWei > 0n && (
             <p className="mt-2 font-mono text-rose-300/90">
               Estimated fee: ~{Number(formatUnits(swapFeeWei, 18)).toFixed(4)} SDA
             </p>
           )}
           {fromToken !== 'SDA' && canUseMax && (
-            <span className="block mt-1 text-rose-300/90">
+            <span className="block mt-2 text-rose-300/90">
               Tip: use the Max button for your full {fromToken} balance.
             </span>
           )}
