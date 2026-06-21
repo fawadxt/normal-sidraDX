@@ -472,6 +472,14 @@ function estimateSellOutput(tokenIn: number, reserves: PoolReserves): number {
   return (reserves.y * tokenIn) / (reserves.x + tokenIn)
 }
 
+function sellSlippageBpsForNotional(wsdaOut: number, baseSlippageBps: number): number {
+  let bps = Math.max(baseSlippageBps, 500)
+  if (wsdaOut >= 500) bps = Math.max(bps, 1500)
+  else if (wsdaOut >= 100) bps = Math.max(bps, 1000)
+  else if (wsdaOut >= 25) bps = Math.max(bps, 750)
+  return bps
+}
+
 export async function quoteSidraSell(
   tokenAddress: string,
   amountIn: string,
@@ -480,8 +488,10 @@ export async function quoteSidraSell(
   const reserves = await getPoolReserves(tokenAddress)
   const tokenIn = Number(amountIn)
   const wsdaOut = estimateSellOutput(tokenIn, reserves)
-  const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
-  const sellSlippageBps = Math.max(slippageBps, 500)
+  // Slightly pessimistic estimate — large sells often receive less than CPAMM math predicts.
+  const conservativeOut = wsdaOut * 0.985
+  const wsdaOutWei = parseEther(conservativeOut.toFixed(18))
+  const sellSlippageBps = sellSlippageBpsForNotional(wsdaOut, slippageBps)
   const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
 
   return {

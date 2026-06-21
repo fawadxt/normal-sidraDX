@@ -14,7 +14,7 @@ import { useAppConfig } from '../hooks/useAppConfig'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useTokenBalances } from '../hooks/useTokenBalances'
 import { recordSwap } from '../lib/api'
-import type { SwapQuote } from '../lib/api'
+import { fetchQuote, type SwapQuote } from '../lib/api'
 import {
   calculatePlatformFeeWei,
   SWAP_FEE_NOTICE,
@@ -34,6 +34,15 @@ type Props = {
 }
 
 type SwapStep = 'idle' | 'fee' | 'approve' | 'swap'
+
+/** Extra min-out buffer on sells — fee tx delay can move the pool before swap executes. */
+const SELL_EXECUTION_BUFFER_BPS = 500
+
+function minOutForExecution(quote: SwapQuote): bigint {
+  const quoted = BigInt(quote.minAmountOut)
+  if (quote.routeType !== 'sidra-sell') return quoted
+  return (quoted * BigInt(10000 - SELL_EXECUTION_BUFFER_BPS)) / 10000n
+}
 
 function getEffectiveSwapWei(
   fromToken: string,
@@ -187,7 +196,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       if (!address) return
 
       const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 20)
-      const minOut = BigInt(activeQuote.minAmountOut)
+      const minOut = minOutForExecution(activeQuote)
       const slippageParam = BigInt(activeQuote.slippageParam ?? '10000')
 
       if (activeQuote.routeType === 'sidra-buy') {
@@ -314,8 +323,24 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
 
   useEffect(() => {
     if (!feeSuccess || step !== 'fee' || !pendingQuote) return
-    runSwapStep(pendingQuote)
-  }, [feeSuccess, step, pendingQuote, runSwapStep])
+
+    let cancelled = false
+    setStep('swap')
+
+    fetchQuote(fromToken, toToken, amountIn)
+      .then((freshQuote) => {
+        if (cancelled) return
+        runSwapStep(freshQuote)
+      })
+      .catch(() => {
+        if (cancelled) return
+        runSwapStep(pendingQuote)
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [feeSuccess, step, pendingQuote, runSwapStep, fromToken, toToken, amountIn])
 
   useEffect(() => {
     if (!approveSuccess || step !== 'approve' || !pendingQuote) return
@@ -566,10 +591,18 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       )}
 
       {activeError && (
-        <div className="p-3.5 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs font-mono break-all">
-          {'shortMessage' in activeError
-            ? activeError.shortMessage
-            : activeError.message}
+        <div className="p-3.5 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs font-mono break-all space-y-2">
+          <p>
+            {'shortMessage' in activeError
+              ? activeError.shortMessage
+              : activeError.message}
+          </p>
+          {feeTxHash && (
+            <p className="text-rose-300/90 text-[11px] leading-relaxed">
+              Platform fee was already sent. If the swap failed, try again with a slightly smaller
+              amount or wait a moment for a fresh quote.
+            </p>
+          )}
         </div>
       )}
     </div>
