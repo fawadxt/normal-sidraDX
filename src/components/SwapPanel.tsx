@@ -17,6 +17,7 @@ import { recordSwap } from '../lib/api'
 import type { SwapQuote } from '../lib/api'
 import {
   calculatePlatformFeeWei,
+  platformFeeWeiFromNotionalWei,
   SWAP_FEE_NOTICE,
 } from '../../shared/platformFee'
 import {
@@ -273,12 +274,13 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
 
         if (autoFeeSwap && feeRouterAddress) {
           const swapSda = parseEther(amountIn)
+          const feeWei = platformFeeWeiFromNotionalWei(swapSda)
           writeContract({
             address: feeRouterAddress,
             abi: feeRouterAbi,
             functionName: 'sidraBuyWithFee',
             args: [token, swapSda, minOut, deadline],
-            value: swapSda + swapFeeWei,
+            value: swapSda + feeWei,
           })
           return
         }

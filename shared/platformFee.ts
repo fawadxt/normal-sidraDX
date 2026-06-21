@@ -12,6 +12,22 @@ export const SWAP_FEE_NOTICE =
 /** @deprecated Use SWAP_FEE_NOTICE for UI copy. */
 export const PLATFORM_FEE_TIER_DESCRIPTION = SWAP_FEE_NOTICE
 
+export function getPlatformFeeBpsFromWei(notionalWei: bigint): number {
+  if (notionalWei <= 0n) return 0
+  const tierHigh = parseEther(String(PLATFORM_FEE_TIER_HIGH_SDA))
+  const tierMid = parseEther(String(PLATFORM_FEE_TIER_MID_SDA))
+  if (notionalWei >= tierHigh) return PLATFORM_FEE_BPS_HIGH
+  if (notionalWei >= tierMid) return PLATFORM_FEE_BPS_MID
+  return PLATFORM_FEE_BPS_LOW
+}
+
+/** Matches SidraFeeRouter.platformFee() — use for on-chain value/fee amounts. */
+export function platformFeeWeiFromNotionalWei(notionalWei: bigint): bigint {
+  if (notionalWei === 0n) return 0n
+  const bps = getPlatformFeeBpsFromWei(notionalWei)
+  return (notionalWei * BigInt(bps)) / 10_000n
+}
+
 export function getPlatformFeeBps(sdaNotional: number): number {
   if (sdaNotional <= 0) return 0
   if (sdaNotional >= PLATFORM_FEE_TIER_HIGH_SDA) return PLATFORM_FEE_BPS_HIGH
@@ -49,9 +65,13 @@ export function calculatePlatformFeeWei(
   amountIn: string,
   amountOut: string,
 ): bigint {
-  const feeSda = calculatePlatformFeeSda(fromToken, toToken, amountIn, amountOut)
-  if (feeSda <= 0) return 0n
-  return parseEther(feeSda.toFixed(18))
+  if (fromToken === 'SDA' || fromToken === 'WSDA') {
+    return platformFeeWeiFromNotionalWei(parseEther(amountIn || '0'))
+  }
+  if (toToken === 'SDA' || toToken === 'WSDA') {
+    return platformFeeWeiFromNotionalWei(parseEther(amountOut || '0'))
+  }
+  return platformFeeWeiFromNotionalWei(parseEther(amountOut || '0'))
 }
 
 export function formatPlatformFeeRate(notional: number): string {
