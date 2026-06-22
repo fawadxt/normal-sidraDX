@@ -25,56 +25,6 @@ export const SIDRA_SWAP_SLIPPAGE_PARAM = BigInt(
 
 const EXPLORER_API = 'https://ledger.sidrachain.com/api/v2'
 const WSDA = '0xe4095a910209d7be03b55d02f40d4554b1666182'
-const FEE_ROUTER_ADDRESS = (process.env.FEE_ROUTER_ADDRESS?.trim() ||
-  '0x7e30A7a5E550471dF3c288BA2D3e36e84B0F2A11') as Address
-
-const erc20ReadAbi = [
-  {
-    name: 'balanceOf',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ type: 'address' }],
-    outputs: [{ type: 'uint256' }],
-  },
-  {
-    name: 'allowance',
-    type: 'function',
-    stateMutability: 'view',
-    inputs: [{ type: 'address' }, { type: 'address' }],
-    outputs: [{ type: 'uint256' }],
-  },
-] as const
-
-const poolSellAbi = [
-  {
-    name: 'sidraSell',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { type: 'address' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const
-
-const routerSellAbi = [
-  {
-    name: 'sidraSellWithFee',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { type: 'address' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-      { type: 'uint256' },
-    ],
-    outputs: [],
-  },
-] as const
 
 const sidraChain = defineChain({
   id: 97453,
@@ -530,202 +480,12 @@ function sellSlippageBpsForNotional(wsdaOut: number, baseSlippageBps: number): n
   return bps
 }
 
-const sellOutputCache = new Map<string, { at: number; out: bigint }>()
-const holderCache = new Map<string, { at: number; holder: Address; viaRouter: boolean }>()
-const SELL_OUTPUT_CACHE_MS = 30 * 60 * 1000
-const HOLDER_CACHE_MS = 30 * 60 * 1000
-const SELL_SIMULATE_TIMEOUT_MS = 8_000
-const MAX_HOLDER_CANDIDATES = 12
-const MAX_SELL_SIMULATE_CALLS = 10
-
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  return Promise.race([
-    promise,
-    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
-  ])
-}
-
-async function readTokenBalance(token: Address, owner: Address): Promise<bigint> {
-  return publicClient.readContract({
-    address: token,
-    abi: erc20ReadAbi,
-    functionName: 'balanceOf',
-    args: [owner],
-  })
-}
-
-async function readTokenAllowance(
-  token: Address,
-  owner: Address,
-  spender: Address,
-): Promise<bigint> {
-  return publicClient.readContract({
-    address: token,
-    abi: erc20ReadAbi,
-    functionName: 'allowance',
-    args: [owner, spender],
-  })
-}
-
-async function findTokenHolder(
-  tokenAddress: Address,
-  minBalance: bigint,
-): Promise<{ holder: Address; viaRouter: boolean } | null> {
-  const key = normalizeAddress(tokenAddress)
-  const cached = holderCache.get(key)
-  if (cached && Date.now() - cached.at < HOLDER_CACHE_MS) {
-    const balance = await readTokenBalance(tokenAddress, cached.holder)
-    if (balance >= minBalance) return cached
-  }
-
-  const candidates: string[] = []
-
-  try {
-    const response = await fetch(`${EXPLORER_API}/addresses/${tokenAddress}/transactions`)
-    if (response.ok) {
-      const json = (await response.json()) as { items?: SwapTx[] }
-      for (const tx of json.items ?? []) {
-        const addr = txSender(tx.from).toLowerCase()
-        if (!candidates.includes(addr)) candidates.push(addr)
-        if (candidates.length >= MAX_HOLDER_CANDIDATES) break
-      }
-    }
-  } catch {
-    return null
-  }
-
-  const skip = new Set([
-    normalizeAddress(SIDRA_SWAP_ADDRESS),
-    normalizeAddress(FEE_ROUTER_ADDRESS),
-    '0x0000000000000000000000000000000000000000',
-  ])
-
-  for (const raw of candidates) {
-    if (skip.has(raw)) continue
-    const holder = raw as Address
-
-    const balance = await readTokenBalance(tokenAddress, holder)
-    if (balance < minBalance) continue
-
-    const routerAllowance = await readTokenAllowance(
-      tokenAddress,
-      holder,
-      FEE_ROUTER_ADDRESS,
-    )
-    if (routerAllowance >= minBalance) {
-      const entry = { at: Date.now(), holder, viaRouter: true as const }
-      holderCache.set(key, entry)
-      return entry
-    }
-
-    const poolAllowance = await readTokenAllowance(tokenAddress, holder, SIDRA_SWAP_ADDRESS)
-    if (poolAllowance >= minBalance) {
-      const entry = { at: Date.now(), holder, viaRouter: false as const }
-      holderCache.set(key, entry)
-      return entry
-    }
-  }
-
-  return null
-}
-
-async function simulateSellMaxOut(
-  tokenAddress: Address,
-  amountWei: bigint,
-  holder: Address,
-  viaRouter: boolean,
-  hintOut: number,
-): Promise<bigint> {
-  const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 20)
-  let calls = 0
-
-  async function succeeds(minOut: bigint): Promise<boolean> {
-    if (calls >= MAX_SELL_SIMULATE_CALLS) return false
-    calls += 1
-    try {
-      if (viaRouter) {
-        await publicClient.simulateContract({
-          address: FEE_ROUTER_ADDRESS,
-          abi: routerSellAbi,
-          functionName: 'sidraSellWithFee',
-          args: [tokenAddress, amountWei, minOut, deadline],
-          account: holder,
-        })
-      } else {
-        await publicClient.simulateContract({
-          address: SIDRA_SWAP_ADDRESS,
-          abi: poolSellAbi,
-          functionName: 'sidraSell',
-          args: [tokenAddress, amountWei, SIDRA_SWAP_SLIPPAGE_PARAM, minOut, deadline],
-          account: holder,
-        })
-      }
-      return true
-    } catch {
-      return false
-    }
-  }
-
-  let lo = 0n
-  let hi = parseEther(Math.max(hintOut * 1.1, 0.0001).toFixed(18))
-
-  if (!(await succeeds(hi))) {
-    hi = parseEther(Math.max(hintOut * 0.5, 0.0001).toFixed(18))
-    if (!(await succeeds(hi))) {
-      return 0n
-    }
-  }
-
-  lo = hi
-  const cap = parseEther(Math.max(hintOut * 1.25, hintOut + 0.001).toFixed(18))
-  const tolerance = parseEther('0.0001')
-
-  while (lo < hi && hi - lo > tolerance && calls < MAX_SELL_SIMULATE_CALLS) {
-    const mid = (lo + hi + 1n) / 2n
-    if (mid > cap) {
-      hi = cap
-      continue
-    }
-    if (await succeeds(mid)) lo = mid
-    else hi = mid - 1n
-  }
-
-  return lo
-}
-
-async function getSimulatedSellOutput(
-  tokenAddress: string,
-  amountIn: string,
-  hintOut: number,
-): Promise<bigint | null> {
-  const key = `${normalizeAddress(tokenAddress)}:${amountIn}`
-  const hit = sellOutputCache.get(key)
-  if (hit && Date.now() - hit.at < SELL_OUTPUT_CACHE_MS) return hit.out
-
-  const amountWei = parseEther(amountIn || '0')
-  if (amountWei === 0n) return null
-
-  const result = await withTimeout(
-    (async () => {
-      const holderInfo = await findTokenHolder(tokenAddress as Address, amountWei)
-      if (!holderInfo) return null
-
-      const out = await simulateSellMaxOut(
-        tokenAddress as Address,
-        amountWei,
-        holderInfo.holder,
-        holderInfo.viaRouter,
-        hintOut,
-      )
-      return out > 0n ? out : null
-    })(),
-    SELL_SIMULATE_TIMEOUT_MS,
-  )
-
-  if (result && result > 0n) {
-    sellOutputCache.set(key, { at: Date.now(), out: result })
-  }
-  return result
+function sellOutputDiscount(cpammSellOut: number): number {
+  // Large expected outputs usually track the pool; tiny thin-pool sells need a steep haircut.
+  if (cpammSellOut >= 100) return 0.92
+  if (cpammSellOut >= 25) return 0.85
+  if (cpammSellOut >= 5) return 0.65
+  return 0.45
 }
 
 export async function quoteSidraSell(
@@ -734,23 +494,26 @@ export async function quoteSidraSell(
   slippageBps: number,
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
   const tokenIn = Number(amountIn)
-  const roughHint = Math.max(tokenIn * 0.04, 0.001)
-
-  const simulatedOut = await getSimulatedSellOutput(tokenAddress, amountIn, roughHint)
+  const key = normalizeAddress(tokenAddress)
 
   let wsdaOut: number
-  let wsdaOutWei: bigint
 
-  if (simulatedOut !== null) {
-    wsdaOutWei = simulatedOut
-    wsdaOut = Number(formatUnits(simulatedOut, 18))
+  const sellRate = await findSellRateFromExplorer(key)
+  if (sellRate?.tokenPerSda) {
+    wsdaOut = (tokenIn / sellRate.tokenPerSda) * 0.99
   } else {
-    const reserves = await getPoolReserves(tokenAddress)
-    const cpammOut = estimateSellOutput(tokenIn, reserves)
-    wsdaOut = cpammOut * 0.45
-    wsdaOutWei = parseEther(wsdaOut.toFixed(18))
+    const buyOut1 = await getBuyOutputCached(tokenAddress, '1')
+    const tokensPerSda = Number(formatUnits(buyOut1, 18))
+    if (tokensPerSda <= 0) {
+      throw new Error(
+        'SidraDX swap simulation failed for this token. It may not be listed in the Sidra pool yet.',
+      )
+    }
+    const cpammSell = tokenIn / tokensPerSda
+    wsdaOut = cpammSell * sellOutputDiscount(cpammSell)
   }
 
+  const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
   const sellSlippageBps = sellSlippageBpsForNotional(wsdaOut, slippageBps)
   const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
 
