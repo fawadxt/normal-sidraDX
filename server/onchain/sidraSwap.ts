@@ -480,66 +480,6 @@ function sellSlippageBpsForNotional(wsdaOut: number, baseSlippageBps: number): n
   return bps
 }
 
-async function fastTokensPerSda(tokenAddress: string): Promise<number | null> {
-  const key = normalizeAddress(tokenAddress)
-  ensureCacheFresh()
-  const cached = rateCache.rates.get(key)
-  if (cached?.tokenPerSda) return cached.tokenPerSda
-
-  const oneKey = `${key}:1`
-  const buyHit = buyOutputCache.get(oneKey)
-  if (buyHit) return Number(formatUnits(buyHit.out, 18))
-
-  try {
-    const { items } = await fetchExplorerPage(null)
-    for (const tx of items) {
-      const input = tx.raw_input
-      if (!input?.startsWith('0xdde6379f')) continue
-      try {
-        const params = decodeAbiParameters(
-          [{ type: 'address' }, { type: 'uint256' }, { type: 'uint256' }, { type: 'uint256' }],
-          (`0x${input.slice(10)}`) as `0x${string}`,
-        )
-        if (normalizeAddress(params[0] as string) !== key) continue
-        const onchainTx = await publicClient.getTransaction({ hash: tx.hash as `0x${string}` })
-        const sdaIn = Number(formatUnits(onchainTx.value, 18))
-        if (sdaIn <= 0) continue
-        const receipt = await publicClient.getTransactionReceipt({ hash: tx.hash as `0x${string}` })
-        let tokenOut = 0
-        const sender = txSender(tx.from).toLowerCase()
-        for (const log of receipt.logs) {
-          if (normalizeAddress(log.address) === WSDA) continue
-          try {
-            const event = decodeEventLog({
-              abi: [transferEvent],
-              data: log.data,
-              topics: log.topics,
-            })
-            if (
-              normalizeAddress(log.address) === key &&
-              event.args.to.toLowerCase() === sender
-            ) {
-              tokenOut += Number(formatUnits(event.args.value, 18))
-            }
-          } catch {
-            // ignore
-          }
-        }
-        if (tokenOut > 0) {
-          rateCache.rates.set(key, { tokenPerSda: tokenOut / sdaIn, source: 'buy' })
-          return tokenOut / sdaIn
-        }
-      } catch {
-        // try next tx
-      }
-    }
-  } catch {
-    // ignore
-  }
-
-  return null
-}
-
 function sellOutputDiscount(cpammSellOut: number): number {
   // Large expected outputs usually track the pool; tiny thin-pool sells need a steep haircut.
   if (cpammSellOut >= 100) return 0.92
@@ -555,23 +495,16 @@ export async function quoteSidraSell(
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
   const tokenIn = Number(amountIn)
 
-  let wsdaOut: number
-
-  const tokensPerSda = await fastTokensPerSda(tokenAddress)
-  if (tokensPerSda && tokensPerSda > 0) {
-    const cpammSell = tokenIn / tokensPerSda
-    wsdaOut = cpammSell * sellOutputDiscount(cpammSell)
-  } else {
-    const buyOut1 = await getBuyOutputCached(tokenAddress, '1')
-    const rate = Number(formatUnits(buyOut1, 18))
-    if (rate <= 0) {
-      throw new Error(
-        'SidraDX swap simulation failed for this token. It may not be listed in the Sidra pool yet.',
-      )
-    }
-    const cpammSell = tokenIn / rate
-    wsdaOut = cpammSell * sellOutputDiscount(cpammSell)
+  const buyQuote = await quoteSidraBuy(tokenAddress, '1', 100)
+  const tokensPerSda = Number(buyQuote.amountOut)
+  if (tokensPerSda <= 0) {
+    throw new Error(
+      'SidraDX swap simulation failed for this token. It may not be listed in the Sidra pool yet.',
+    )
   }
+
+  const cpammSell = tokenIn / tokensPerSda
+  const wsdaOut = cpammSell * sellOutputDiscount(cpammSell)
 
   const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
   const sellSlippageBps = sellSlippageBpsForNotional(wsdaOut, slippageBps)
