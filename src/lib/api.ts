@@ -45,10 +45,26 @@ export type SwapRecord = {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
+async function readJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text()
+  try {
+    return JSON.parse(text) as T
+  } catch {
+    if (res.status === 504) {
+      throw new Error('Quote timed out — try a smaller amount or wait a moment.')
+    }
+    throw new Error(
+      text.startsWith('An error')
+        ? 'Server error — please refresh and try again.'
+        : 'Unexpected server response. Please try again.',
+    )
+  }
+}
+
 export async function fetchConfig(): Promise<AppConfig> {
   const res = await fetch(`${API_BASE}/api/config`)
   if (!res.ok) throw new Error('Failed to load app config')
-  return res.json()
+  return readJsonResponse<AppConfig>(res)
 }
 
 export async function fetchQuote(
@@ -58,7 +74,7 @@ export async function fetchQuote(
 ): Promise<SwapQuote> {
   const params = new URLSearchParams({ from, to, amountIn })
   const res = await fetch(`${API_BASE}/api/quote?${params}`)
-  const data = await res.json()
+  const data = await readJsonResponse<SwapQuote & { error?: string }>(res)
   if (!res.ok) throw new Error(data.error ?? 'Quote failed')
   return data
 }

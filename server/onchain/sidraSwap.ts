@@ -531,8 +531,19 @@ function sellSlippageBpsForNotional(wsdaOut: number, baseSlippageBps: number): n
 }
 
 const sellOutputCache = new Map<string, { at: number; out: bigint }>()
-const SELL_OUTPUT_CACHE_MS = 5 * 60 * 1000
-const HOLDER_LOG_BLOCK_RANGE = 250_000n
+const holderCache = new Map<string, { at: number; holder: Address; viaRouter: boolean }>()
+const SELL_OUTPUT_CACHE_MS = 30 * 60 * 1000
+const HOLDER_CACHE_MS = 30 * 60 * 1000
+const SELL_SIMULATE_TIMEOUT_MS = 8_000
+const MAX_HOLDER_CANDIDATES = 12
+const MAX_SELL_SIMULATE_CALLS = 10
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T | null> {
+  return Promise.race([
+    promise,
+    new Promise<null>((resolve) => setTimeout(() => resolve(null), ms)),
+  ])
+}
 
 async function readTokenBalance(token: Address, owner: Address): Promise<bigint> {
   return publicClient.readContract({
@@ -560,35 +571,27 @@ async function findTokenHolder(
   tokenAddress: Address,
   minBalance: bigint,
 ): Promise<{ holder: Address; viaRouter: boolean } | null> {
-  const candidates = new Set<string>()
+  const key = normalizeAddress(tokenAddress)
+  const cached = holderCache.get(key)
+  if (cached && Date.now() - cached.at < HOLDER_CACHE_MS) {
+    const balance = await readTokenBalance(tokenAddress, cached.holder)
+    if (balance >= minBalance) return cached
+  }
+
+  const candidates: string[] = []
 
   try {
     const response = await fetch(`${EXPLORER_API}/addresses/${tokenAddress}/transactions`)
     if (response.ok) {
       const json = (await response.json()) as { items?: SwapTx[] }
       for (const tx of json.items ?? []) {
-        candidates.add(txSender(tx.from).toLowerCase())
+        const addr = txSender(tx.from).toLowerCase()
+        if (!candidates.includes(addr)) candidates.push(addr)
+        if (candidates.length >= MAX_HOLDER_CANDIDATES) break
       }
     }
   } catch {
-    // fall through to log scan
-  }
-
-  try {
-    const latest = await publicClient.getBlockNumber()
-    const fromBlock = latest > HOLDER_LOG_BLOCK_RANGE ? latest - HOLDER_LOG_BLOCK_RANGE : 0n
-    const logs = await publicClient.getLogs({
-      address: tokenAddress,
-      event: transferEvent,
-      fromBlock,
-      toBlock: 'latest',
-    })
-    for (const log of logs.slice(-300)) {
-      if (log.args.to) candidates.add(log.args.to.toLowerCase())
-      if (log.args.from) candidates.add(log.args.from.toLowerCase())
-    }
-  } catch {
-    // ignore log scan failures
+    return null
   }
 
   const skip = new Set([
@@ -610,12 +613,16 @@ async function findTokenHolder(
       FEE_ROUTER_ADDRESS,
     )
     if (routerAllowance >= minBalance) {
-      return { holder, viaRouter: true }
+      const entry = { at: Date.now(), holder, viaRouter: true as const }
+      holderCache.set(key, entry)
+      return entry
     }
 
     const poolAllowance = await readTokenAllowance(tokenAddress, holder, SIDRA_SWAP_ADDRESS)
     if (poolAllowance >= minBalance) {
-      return { holder, viaRouter: false }
+      const entry = { at: Date.now(), holder, viaRouter: false as const }
+      holderCache.set(key, entry)
+      return entry
     }
   }
 
@@ -627,13 +634,14 @@ async function simulateSellMaxOut(
   amountWei: bigint,
   holder: Address,
   viaRouter: boolean,
+  hintOut: number,
 ): Promise<bigint> {
   const deadline = BigInt(Math.floor(Date.now() / 1000) + 60 * 20)
-  const amountIn = Number(formatUnits(amountWei, 18))
-  let hi = parseEther(String(Math.max(amountIn * 0.25, 0.001)))
-  let lo = 0n
+  let calls = 0
 
   async function succeeds(minOut: bigint): Promise<boolean> {
+    if (calls >= MAX_SELL_SIMULATE_CALLS) return false
+    calls += 1
     try {
       if (viaRouter) {
         await publicClient.simulateContract({
@@ -658,26 +666,26 @@ async function simulateSellMaxOut(
     }
   }
 
+  let lo = 0n
+  let hi = parseEther(Math.max(hintOut * 1.1, 0.0001).toFixed(18))
+
   if (!(await succeeds(hi))) {
-    hi = 1n
-    while (hi < parseEther(String(Math.max(amountIn, 1))) && (await succeeds(hi))) {
-      lo = hi
-      hi *= 2n
+    hi = parseEther(Math.max(hintOut * 0.5, 0.0001).toFixed(18))
+    if (!(await succeeds(hi))) {
+      return 0n
     }
-  } else {
-    lo = hi
-    let next = hi * 2n
-    const cap = parseEther(String(Math.max(amountIn * 2, 1)))
-    while (next <= cap && (await succeeds(next))) {
-      lo = next
-      next *= 2n
-    }
-    hi = next > cap ? cap : next
   }
 
-  const tolerance = parseEther('0.00001')
-  while (lo < hi && hi - lo > tolerance) {
+  lo = hi
+  const cap = parseEther(Math.max(hintOut * 1.25, hintOut + 0.001).toFixed(18))
+  const tolerance = parseEther('0.0001')
+
+  while (lo < hi && hi - lo > tolerance && calls < MAX_SELL_SIMULATE_CALLS) {
     const mid = (lo + hi + 1n) / 2n
+    if (mid > cap) {
+      hi = cap
+      continue
+    }
     if (await succeeds(mid)) lo = mid
     else hi = mid - 1n
   }
@@ -688,6 +696,7 @@ async function simulateSellMaxOut(
 async function getSimulatedSellOutput(
   tokenAddress: string,
   amountIn: string,
+  hintOut: number,
 ): Promise<bigint | null> {
   const key = `${normalizeAddress(tokenAddress)}:${amountIn}`
   const hit = sellOutputCache.get(key)
@@ -696,20 +705,27 @@ async function getSimulatedSellOutput(
   const amountWei = parseEther(amountIn || '0')
   if (amountWei === 0n) return null
 
-  const holderInfo = await findTokenHolder(tokenAddress as Address, amountWei)
-  if (!holderInfo) return null
+  const result = await withTimeout(
+    (async () => {
+      const holderInfo = await findTokenHolder(tokenAddress as Address, amountWei)
+      if (!holderInfo) return null
 
-  const out = await simulateSellMaxOut(
-    tokenAddress as Address,
-    amountWei,
-    holderInfo.holder,
-    holderInfo.viaRouter,
+      const out = await simulateSellMaxOut(
+        tokenAddress as Address,
+        amountWei,
+        holderInfo.holder,
+        holderInfo.viaRouter,
+        hintOut,
+      )
+      return out > 0n ? out : null
+    })(),
+    SELL_SIMULATE_TIMEOUT_MS,
   )
 
-  if (out > 0n) {
-    sellOutputCache.set(key, { at: Date.now(), out })
+  if (result && result > 0n) {
+    sellOutputCache.set(key, { at: Date.now(), out: result })
   }
-  return out > 0n ? out : null
+  return result
 }
 
 export async function quoteSidraSell(
@@ -721,7 +737,7 @@ export async function quoteSidraSell(
   const reserves = await getPoolReserves(tokenAddress)
   const cpammOut = estimateSellOutput(tokenIn, reserves)
 
-  const simulatedOut = await getSimulatedSellOutput(tokenAddress, amountIn)
+  const simulatedOut = await getSimulatedSellOutput(tokenAddress, amountIn, cpammOut * 0.45)
   const wsdaOut =
     simulatedOut !== null
       ? Number(formatUnits(simulatedOut, 18))
