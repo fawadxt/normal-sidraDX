@@ -10,6 +10,7 @@ import { formatUnits, parseEther, type Address } from 'viem'
 import { erc20Abi, feeRouterAbi, wsdaAbi } from '../config/abis'
 import { TokenSelect } from './TokenSelect'
 import { LoadingLabel } from './LoadingDots'
+import { TxExplorerLink } from './TxExplorerLink'
 import { useAppConfig } from '../hooks/useAppConfig'
 import { useSwapQuote } from '../hooks/useSwapQuote'
 import { useTokenBalances } from '../hooks/useTokenBalances'
@@ -35,6 +36,14 @@ type Props = {
 }
 
 type SwapStep = 'idle' | 'fee' | 'approve' | 'swap'
+
+type LastSwapResult = {
+  status: 'success' | 'error'
+  feeTxHash?: `0x${string}`
+  swapTxHash?: `0x${string}`
+  feeBundledInSwap?: boolean
+  errorMessage?: string
+}
 
 /** Extra min-out buffer on sells — fee tx delay can move the pool before swap executes. */
 const SELL_EXECUTION_BUFFER_BPS = 500
@@ -118,6 +127,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
   const [amountIn, setAmountIn] = useState('')
   const [step, setStep] = useState<SwapStep>('idle')
   const [pendingQuote, setPendingQuote] = useState<SwapQuote | null>(null)
+  const [lastResult, setLastResult] = useState<LastSwapResult | null>(null)
   const recordedRef = useRef<string | null>(null)
 
   const feeWalletAddress = config.swapFeeRecipient as Address | null
@@ -143,8 +153,10 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     quote?.routeType === 'wrap' ||
     quote?.routeType === 'unwrap'
 
-  const autoFeeSwap = useFeeRouter && quote?.routeType === 'sidra-buy'
-  const swapSpender = (autoFeeSwap ? feeRouterAddress : swapAddress) as Address
+  const routerBuy = useFeeRouter && quote?.routeType === 'sidra-buy'
+  const routerSell = useFeeRouter && quote?.routeType === 'sidra-sell'
+  const routerOneTx = routerBuy || routerSell
+  const swapSpender = (routerOneTx ? feeRouterAddress : swapAddress) as Address
 
   const { data: nativeBalance } = useBalance({ address })
   const { balances, balancesWei, getMaxSwapAmount, isLoading: balancesLoading } =
@@ -272,7 +284,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         const token = toMeta?.address as Address
         if (!token) return
 
-        if (autoFeeSwap && feeRouterAddress) {
+        if (routerBuy && feeRouterAddress) {
           const swapSda = parseEther(amountIn)
           const feeWei = platformFeeWeiFromNotionalWei(swapSda)
           writeContract({
@@ -299,6 +311,16 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
 
         const amountWei = getEffectiveSwapWei(fromToken, amountIn, balancesWei)
 
+        if (routerSell && feeRouterAddress) {
+          writeContract({
+            address: feeRouterAddress,
+            abi: feeRouterAbi,
+            functionName: 'sidraSellWithFee',
+            args: [token, amountWei, minOut, deadline],
+          })
+          return
+        }
+
         sendSwap({
           to: swapAddress,
           data: encodeSidraSellCall(
@@ -314,7 +336,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     [
       address,
       amountIn,
-      autoFeeSwap,
+      routerBuy,
+      routerSell,
       balancesWei,
       feeRouterAddress,
       fromMeta?.address,
@@ -401,7 +424,8 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     if (!feeWalletAddress) return
 
     setPendingQuote(quote)
-    if (autoFeeSwap) {
+    setLastResult(null)
+    if (routerOneTx) {
       runSwapStep(quote)
       return
     }
@@ -423,7 +447,7 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
 
   useEffect(() => {
     if (!swapSuccess || !address || !amountIn) return
-    const recordKey = autoFeeSwap ? activeSwapHash : feeTxHash
+    const recordKey = routerOneTx ? activeSwapHash : feeTxHash
     if (!recordKey) return
     if (recordedRef.current === recordKey) return
     recordedRef.current = recordKey
@@ -439,12 +463,18 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
       toToken,
     }).catch(() => {})
 
+    setLastResult({
+      status: 'success',
+      feeTxHash: routerOneTx ? undefined : feeTxHash,
+      swapTxHash: activeSwapHash ?? undefined,
+      feeBundledInSwap: routerOneTx,
+    })
     setStep('idle')
     setAmountIn('')
     setPendingQuote(null)
   }, [
     swapSuccess,
-    autoFeeSwap,
+    routerOneTx,
     feeTxHash,
     activeSwapHash,
     address,
@@ -492,6 +522,22 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
     step === 'swap'
 
   const activeError = feeError ?? approveError ?? swapSendError ?? swapWriteError
+
+  useEffect(() => {
+    if (!activeError || isBusy) return
+    const message =
+      'shortMessage' in activeError ? activeError.shortMessage : activeError.message
+    setLastResult((prev) => {
+      if (prev?.status === 'success') return prev
+      return {
+        status: 'error',
+        feeTxHash: feeTxHash ?? prev?.feeTxHash,
+        swapTxHash: activeSwapHash ?? prev?.swapTxHash,
+        feeBundledInSwap: routerOneTx,
+        errorMessage: message,
+      }
+    })
+  }, [activeError, isBusy, feeTxHash, activeSwapHash, routerOneTx])
 
   return (
     <div className="border-t border-slate-900 pt-4 space-y-4">
@@ -597,10 +643,11 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
               <p>
                 Estimated swapping fee: ~{Number(formatUnits(swapFeeWei, 18)).toFixed(4)} SDA
               </p>
-              {needsPoolFee && !autoFeeSwap && (
-                <p>Platform fee is sent before the swap transaction.</p>
+              {needsPoolFee && !routerOneTx && (
+                <p>Platform fee is sent in a separate transaction before the swap.</p>
               )}
-              {autoFeeSwap && <p>One transaction — fee and swap together.</p>}
+              {routerBuy && <p>One transaction — SDA fee and token buy together.</p>}
+              {routerSell && <p>One transaction — fee deducted from your SDA/WSDA output.</p>}
             </div>
           )}
         </div>
@@ -668,27 +715,87 @@ export function SwapPanel({ isConnected, address, onConnect }: Props) {
         </div>
       )}
 
-      {swapSuccess && (autoFeeSwap ? activeSwapHash : feeTxHash) && step === 'idle' && (
-        <div className="p-3.5 bg-emerald-950/40 border border-emerald-900 text-emerald-400 rounded-2xl text-xs font-mono break-all space-y-1">
-          <p>Swap complete on Sidra Chain</p>
-          {activeSwapHash && <p>Swap tx: {activeSwapHash}</p>}
-          {!autoFeeSwap && feeTxHash && <p>Fee tx: {feeTxHash}</p>}
-          {autoFeeSwap && <p>Platform fee included in swap tx</p>}
+      {(isBusy || feeTxHash || activeSwapHash || approveTxHash) && (
+        <div className="p-3.5 bg-slate-900/90 border border-slate-800 rounded-2xl text-xs space-y-2">
+          <p className="text-slate-400 font-medium">Transaction status</p>
+          {feeTxHash && !routerOneTx && (
+            <div>
+              <TxExplorerLink hash={feeTxHash} label="Fee tx" />
+              {(feePending || feeConfirming) && (
+                <p className="text-[10px] text-slate-500 mt-1">Fee confirming…</p>
+              )}
+            </div>
+          )}
+          {approveTxHash && (
+            <div>
+              <TxExplorerLink hash={approveTxHash} label="Approve tx" />
+              {(approvePending || approveConfirming) && (
+                <p className="text-[10px] text-slate-500 mt-1">Approve confirming…</p>
+              )}
+            </div>
+          )}
+          {activeSwapHash && (
+            <div>
+              <TxExplorerLink
+                hash={activeSwapHash}
+                label={routerOneTx ? 'Swap + fee tx' : 'Swap tx'}
+              />
+              {(swapSendPending || swapWritePending || swapConfirming) && (
+                <p className="text-[10px] text-slate-500 mt-1">Swap confirming…</p>
+              )}
+            </div>
+          )}
         </div>
       )}
 
-      {activeError && (
+      {lastResult?.status === 'success' && (
+        <div className="p-3.5 bg-emerald-950/40 border border-emerald-900 text-emerald-400 rounded-2xl text-xs space-y-2">
+          <p className="font-medium text-emerald-300">Swap complete on Sidra Chain</p>
+          {lastResult.feeBundledInSwap && lastResult.swapTxHash && (
+            <TxExplorerLink hash={lastResult.swapTxHash} label="Swap + fee tx" />
+          )}
+          {!lastResult.feeBundledInSwap && lastResult.feeTxHash && (
+            <TxExplorerLink hash={lastResult.feeTxHash} label="Fee tx" />
+          )}
+          {!lastResult.feeBundledInSwap && lastResult.swapTxHash && (
+            <TxExplorerLink hash={lastResult.swapTxHash} label="Swap tx" />
+          )}
+        </div>
+      )}
+
+      {lastResult?.status === 'error' && (
+        <div className="p-3.5 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs space-y-2">
+          {lastResult.errorMessage && <p>{lastResult.errorMessage}</p>}
+          {lastResult.feeTxHash && !lastResult.feeBundledInSwap && (
+            <>
+              <TxExplorerLink hash={lastResult.feeTxHash} label="Fee tx (sent)" />
+              <p className="text-rose-300/90 text-[11px] leading-relaxed">
+                Fee was already deducted. If the swap failed, try again with a slightly smaller
+                amount or wait for a fresh quote. Check the fee tx on SidraScan above.
+              </p>
+            </>
+          )}
+          {lastResult.swapTxHash && (
+            <TxExplorerLink hash={lastResult.swapTxHash} label="Failed swap tx" />
+          )}
+        </div>
+      )}
+
+      {activeError && !lastResult && (
         <div className="p-3.5 bg-rose-950/40 border border-rose-900 text-rose-400 rounded-2xl text-xs font-mono break-all space-y-2">
           <p>
             {'shortMessage' in activeError
               ? activeError.shortMessage
               : activeError.message}
           </p>
-          {feeTxHash && (
-            <p className="text-rose-300/90 text-[11px] leading-relaxed">
-              Platform fee was already sent. If the swap failed, try again with a slightly smaller
-              amount or wait a moment for a fresh quote.
-            </p>
+          {feeTxHash && !routerOneTx && (
+            <>
+              <TxExplorerLink hash={feeTxHash} label="Fee tx (sent)" />
+              <p className="text-rose-300/90 text-[11px] leading-relaxed">
+                Platform fee was already sent. If the swap failed, try again with a slightly
+                smaller amount or wait a moment for a fresh quote.
+              </p>
+            </>
           )}
         </div>
       )}
