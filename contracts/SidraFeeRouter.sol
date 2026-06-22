@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
-// Compile for Sidra Chain with EVM version "paris" (Remix: Compiler → EVM Version → paris).
-pragma solidity ^0.8.20;
+// Sidra Chain: compile with Solidity 0.8.19 + EVM paris in Remix (0.8.20+ defaults can emit PUSH0).
+pragma solidity 0.8.19;
 
 interface IERC20 {
     function balanceOf(address account) external view returns (uint256);

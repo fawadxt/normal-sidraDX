@@ -22,10 +22,12 @@ This contract collects your tiered platform fee automatically inside one swap tr
 1. Go to [https://remix.ethereum.org](https://remix.ethereum.org)
 2. Create file: `contracts/SidraFeeRouter.sol`
 3. Copy all code from `contracts/SidraFeeRouter.sol` in this repo
-4. Compile with **Solidity 0.8.20+**
-5. **Important (Sidra Chain):** set **EVM Version = paris** in the compiler panel  
-   - Default **shanghai** uses `PUSH0`, which Sidra Chain rejects → deploy shows `transaction execution failed` and gas is still charged  
-   - After changing to **paris**, click **Compile SidraFeeRouter.sol** again
+4. **Compiler version:** pick **`0.8.19`** in the Remix compiler dropdown (not 0.8.26)  
+   - Solidity **0.8.20+** can emit `PUSH0`, which Sidra Chain rejects → `transaction execution failed`
+5. Open **Advanced configurations** → set **EVM Version = paris** (not `default` / shanghai)
+6. Optional: enable **Use configuration file** and select `contracts/remix-compiler.config.json` from this repo
+7. Click **Compile SidraFeeRouter.sol** again after any compiler change
+8. Open **Compilation Details** → `settings` → confirm `evmVersion` is **paris** before deploying
 
 ## Step 2 — Connect Sidra Chain
 
@@ -54,6 +56,8 @@ _feeRecipient:  0xf5cc15904c33E392a0e50d965e1BcC52b5530e86
 7. Copy the **contract address** shown under "Deployed Contracts"
 
 That address is your **FEE_ROUTER_ADDRESS**.
+
+**Current production router (Jun 2026):** `0x7e30A7a5E550471dF3c288BA2D3e36e84B0F2A11`
 
 ## Step 4 — Connect SidraDX app
 
