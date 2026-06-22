@@ -734,17 +734,23 @@ export async function quoteSidraSell(
   slippageBps: number,
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
   const tokenIn = Number(amountIn)
-  const reserves = await getPoolReserves(tokenAddress)
-  const cpammOut = estimateSellOutput(tokenIn, reserves)
+  const roughHint = Math.max(tokenIn * 0.04, 0.001)
 
-  const simulatedOut = await getSimulatedSellOutput(tokenAddress, amountIn, cpammOut * 0.45)
-  const wsdaOut =
-    simulatedOut !== null
-      ? Number(formatUnits(simulatedOut, 18))
-      : cpammOut * 0.45
+  const simulatedOut = await getSimulatedSellOutput(tokenAddress, amountIn, roughHint)
 
-  const wsdaOutWei =
-    simulatedOut !== null ? simulatedOut : parseEther(wsdaOut.toFixed(18))
+  let wsdaOut: number
+  let wsdaOutWei: bigint
+
+  if (simulatedOut !== null) {
+    wsdaOutWei = simulatedOut
+    wsdaOut = Number(formatUnits(simulatedOut, 18))
+  } else {
+    const reserves = await getPoolReserves(tokenAddress)
+    const cpammOut = estimateSellOutput(tokenIn, reserves)
+    wsdaOut = cpammOut * 0.45
+    wsdaOutWei = parseEther(wsdaOut.toFixed(18))
+  }
+
   const sellSlippageBps = sellSlippageBpsForNotional(wsdaOut, slippageBps)
   const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
 
