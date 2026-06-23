@@ -145,7 +145,9 @@ async function fetchExplorerPage(
   return { items: json.items ?? [], next: json.next_page_params ?? null }
 }
 
-function parseSellRate(rawInput: string): { token: string; rate: TokenRate } | null {
+function parseSellAmounts(
+  rawInput: string,
+): { token: string; tokenIn: number; minWsdaOut: number } | null {
   if (!rawInput.startsWith('0x968e7276')) return null
 
   try {
@@ -164,12 +166,19 @@ function parseSellRate(rawInput: string): { token: string; rate: TokenRate } | n
     const minWsdaOut = Number(formatUnits(params[3] as bigint, 18))
     if (tokenIn <= 0 || minWsdaOut <= 0) return null
 
-    return {
-      token,
-      rate: { tokenPerSda: (tokenIn / minWsdaOut) * 0.99, source: 'sell' },
-    }
+    return { token, tokenIn, minWsdaOut }
   } catch {
     return null
+  }
+}
+
+function parseSellRate(rawInput: string): { token: string; rate: TokenRate } | null {
+  const parsed = parseSellAmounts(rawInput)
+  if (!parsed) return null
+
+  return {
+    token: parsed.token,
+    rate: { tokenPerSda: (parsed.tokenIn / parsed.minWsdaOut) * 0.99, source: 'sell' },
   }
 }
 
@@ -473,14 +482,6 @@ function estimateSellOutput(tokenIn: number, reserves: PoolReserves): number {
   return (reserves.y * tokenIn) / (reserves.x + tokenIn)
 }
 
-function sellSlippageBpsForNotional(wsdaOut: number, baseSlippageBps: number): number {
-  if (wsdaOut >= 500) return Math.max(baseSlippageBps, 1500)
-  if (wsdaOut >= 100) return Math.max(baseSlippageBps, 1000)
-  if (wsdaOut >= 25) return Math.max(baseSlippageBps, 500)
-  if (wsdaOut >= 5) return Math.max(baseSlippageBps, 200)
-  return Math.max(baseSlippageBps, 100)
-}
-
 export async function quoteSidraSell(
   tokenAddress: string,
   amountIn: string,
@@ -493,8 +494,7 @@ export async function quoteSidraSell(
   const wsdaOut = grossOut * haircut
 
   const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
-  const sellSlippageBps = sellSlippageBpsForNotional(wsdaOut, slippageBps)
-  const minOut = (wsdaOutWei * BigInt(10000 - sellSlippageBps)) / 10000n
+  const minOut = (wsdaOutWei * BigInt(10000 - slippageBps)) / 10000n
 
   return {
     amountOut: wsdaOut.toString(),

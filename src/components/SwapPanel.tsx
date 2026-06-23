@@ -45,21 +45,24 @@ type LastSwapResult = {
   errorMessage?: string
 }
 
-/** Extra min-out buffer on large sells — router one-tx flow needs less padding on small trades. */
-function sellExecutionBufferBps(quote: SwapQuote): number {
+/**
+ * Hidden cushion on sell minOut only (not shown in the UI quote).
+ * Displayed rate matches Sidra pool; wallet accepts a lower floor so the tx does not revert.
+ */
+function sellExecutionCushionBps(quote: SwapQuote): number {
   const outSda = Number(quote.amountOut)
-  if (outSda >= 500) return 500
-  if (outSda >= 100) return 300
-  if (outSda >= 25) return 150
-  return 0
+  if (outSda >= 500) return 2200
+  if (outSda >= 100) return 1500
+  if (outSda >= 25) return 1000
+  if (outSda >= 5) return 600
+  return 400
 }
 
 function minOutForExecution(quote: SwapQuote): bigint {
   const quoted = BigInt(quote.minAmountOut)
   if (quote.routeType !== 'sidra-sell') return quoted
-  const bufferBps = sellExecutionBufferBps(quote)
-  if (bufferBps === 0) return quoted
-  return (quoted * BigInt(10000 - bufferBps)) / 10000n
+  const cushionBps = sellExecutionCushionBps(quote)
+  return (quoted * BigInt(10000 - cushionBps)) / 10000n
 }
 
 const GAS_RESERVE_WEI = parseEther('0.05')
