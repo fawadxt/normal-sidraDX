@@ -5,6 +5,7 @@ export type SwapToken = {
   decimals: number
   isNative?: boolean
   wrappedAddress?: string
+  sellHaircut?: number
 }
 
 export const SIDRA_TOKENS: SwapToken[] = [
@@ -123,6 +124,7 @@ export const SIDRA_TOKENS: SwapToken[] = [
     name: 'BI Nouvelle Vision',
     address: '0xbE7360FE473E65a4AFee06c776440Ec2E807182f',
     decimals: 18,
+    sellHaircut: 0.47,
   },
   {
     symbol: 'SSET',

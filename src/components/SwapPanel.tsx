@@ -45,13 +45,21 @@ type LastSwapResult = {
   errorMessage?: string
 }
 
-/** Extra min-out buffer on sells — fee tx delay can move the pool before swap executes. */
-const SELL_EXECUTION_BUFFER_BPS = 500
+/** Extra min-out buffer on large sells — router one-tx flow needs less padding on small trades. */
+function sellExecutionBufferBps(quote: SwapQuote): number {
+  const outSda = Number(quote.amountOut)
+  if (outSda >= 500) return 500
+  if (outSda >= 100) return 300
+  if (outSda >= 25) return 150
+  return 0
+}
 
 function minOutForExecution(quote: SwapQuote): bigint {
   const quoted = BigInt(quote.minAmountOut)
   if (quote.routeType !== 'sidra-sell') return quoted
-  return (quoted * BigInt(10000 - SELL_EXECUTION_BUFFER_BPS)) / 10000n
+  const bufferBps = sellExecutionBufferBps(quote)
+  if (bufferBps === 0) return quoted
+  return (quoted * BigInt(10000 - bufferBps)) / 10000n
 }
 
 const GAS_RESERVE_WEI = parseEther('0.05')

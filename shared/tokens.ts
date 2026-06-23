@@ -5,6 +5,8 @@ export type SwapToken = {
   decimals: number
   isNative?: boolean
   wrappedAddress?: string
+  /** On-chain sell output / CPAMM estimate. Only set when pool sells below the buy-implied rate (e.g. BINV). */
+  sellHaircut?: number
 }
 
 export const SIDRA_TOKENS: SwapToken[] = [
@@ -123,6 +125,7 @@ export const SIDRA_TOKENS: SwapToken[] = [
     name: 'BI Nouvelle Vision',
     address: '0xbE7360FE473E65a4AFee06c776440Ec2E807182f',
     decimals: 18,
+    sellHaircut: 0.47,
   },
   {
     symbol: 'SSET',
@@ -239,4 +242,10 @@ export const WSDA_ADDRESS = '0xE4095a910209D7BE03B55D02F40d4554B1666182'
 
 export function getTokenBySymbol(symbol: string): SwapToken | undefined {
   return SIDRA_TOKENS.find((t) => t.symbol === symbol)
+}
+
+export function getTokenSellHaircutByAddress(address: string): number {
+  const key = address.toLowerCase()
+  const token = SIDRA_TOKENS.find((t) => t.address?.toLowerCase() === key)
+  return token?.sellHaircut ?? 1
 }

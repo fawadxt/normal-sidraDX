@@ -11,6 +11,7 @@ import {
   type Hex,
 } from 'viem'
 import { defineChain } from 'viem'
+import { getTokenSellHaircutByAddress } from '../../shared/tokens.js'
 
 export const SIDRA_SWAP_ADDRESS =
   (process.env.SIDRA_SWAP_CONTRACT?.trim() ||
@@ -473,19 +474,11 @@ function estimateSellOutput(tokenIn: number, reserves: PoolReserves): number {
 }
 
 function sellSlippageBpsForNotional(wsdaOut: number, baseSlippageBps: number): number {
-  let bps = Math.max(baseSlippageBps, 500)
-  if (wsdaOut >= 500) bps = Math.max(bps, 1500)
-  else if (wsdaOut >= 100) bps = Math.max(bps, 1000)
-  else if (wsdaOut >= 25) bps = Math.max(bps, 750)
-  return bps
-}
-
-function sellOutputDiscount(cpammSellOut: number): number {
-  // Large expected outputs usually track the pool; tiny thin-pool sells need a steep haircut.
-  if (cpammSellOut >= 100) return 0.92
-  if (cpammSellOut >= 25) return 0.85
-  if (cpammSellOut >= 5) return 0.65
-  return 0.45
+  if (wsdaOut >= 500) return Math.max(baseSlippageBps, 1500)
+  if (wsdaOut >= 100) return Math.max(baseSlippageBps, 1000)
+  if (wsdaOut >= 25) return Math.max(baseSlippageBps, 500)
+  if (wsdaOut >= 5) return Math.max(baseSlippageBps, 200)
+  return Math.max(baseSlippageBps, 100)
 }
 
 export async function quoteSidraSell(
@@ -494,17 +487,10 @@ export async function quoteSidraSell(
   slippageBps: number,
 ): Promise<{ amountOut: string; minAmountOut: string; slippageParam: bigint }> {
   const tokenIn = Number(amountIn)
-
-  const buyQuote = await quoteSidraBuy(tokenAddress, '1', 100)
-  const tokensPerSda = Number(buyQuote.amountOut)
-  if (tokensPerSda <= 0) {
-    throw new Error(
-      'SidraDX swap simulation failed for this token. It may not be listed in the Sidra pool yet.',
-    )
-  }
-
-  const cpammSell = tokenIn / tokensPerSda
-  const wsdaOut = cpammSell * sellOutputDiscount(cpammSell)
+  const reserves = await getPoolReserves(tokenAddress)
+  const grossOut = estimateSellOutput(tokenIn, reserves)
+  const haircut = getTokenSellHaircutByAddress(tokenAddress)
+  const wsdaOut = grossOut * haircut
 
   const wsdaOutWei = parseEther(wsdaOut.toFixed(18))
   const sellSlippageBps = sellSlippageBpsForNotional(wsdaOut, slippageBps)
