@@ -11,7 +11,6 @@ import { useWalletShell } from '../context/WalletShellContext'
 import { useWalletRefreshTick } from '../context/WalletRefreshContext'
 import { useWalletNotifications } from '../context/WalletNotificationsContext'
 import { CollapsingWalletHeader } from '../components/wallet/CollapsingWalletHeader'
-import { ApkDownloadBanner } from '../components/wallet/ApkDownloadBanner'
 import { useWalletProfile } from '../hooks/useWalletProfile'
 import { useWalletScrollProgress } from '../hooks/useWalletScrollProgress'
 import { QuickActions } from '../components/wallet/QuickActions'
@@ -63,7 +62,6 @@ export function WalletHomePage() {
 
   return (
     <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        <ApkDownloadBanner />
         <CollapsingWalletHeader
           balance={balanceLabel}
           balanceTitle="USDT Balance"

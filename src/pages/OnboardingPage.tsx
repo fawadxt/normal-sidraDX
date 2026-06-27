@@ -5,6 +5,7 @@ import { ImportWalletFlow } from '../components/ImportWalletFlow'
 import { CreatePasscodeFlow } from '../components/lock/CreatePasscodeFlow'
 import { AppLogo } from '../components/AppLogo'
 import { BRAND } from '../config/brand'
+import { ApkDownloadBanner } from '../components/wallet/ApkDownloadBanner'
 import { useWalletSettings } from '../hooks/useWalletSettings'
 import { getOnboardingStep, hasCompletedOnboarding, markOnboardingComplete } from '../lib/onboarding'
 import { createSession, hasPasscode } from '../lib/walletLock'
@@ -100,6 +101,8 @@ export function OnboardingPage() {
           </button>
         </div>
       </div>
+
+      <ApkDownloadBanner compact className="pb-3" />
 
       <p className="pb-4 text-center text-[11px] font-medium tracking-wide text-[var(--premium-text-muted)]">
         {isReconnect ? BRAND.name : `Step 2 of 2 · ${BRAND.name}`}

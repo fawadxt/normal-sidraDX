@@ -1,5 +1,5 @@
 import { BRAND } from '../../config/brand'
-import { getApkDownloadUrl, shouldShowApkDownload } from '../../config/appDownload'
+import { getApkDownloadUrl, shouldShowApkBanner } from '../../config/appDownload'
 
 /** Persistent download row for Settings → About (always visible when URL is configured). */
 export function ApkDownloadCard() {
@@ -20,7 +20,7 @@ export function ApkDownloadCard() {
       >
         Download APK
       </a>
-      {!shouldShowApkDownload() && (
+      {!shouldShowApkBanner() && (
         <p className="mt-2 text-center text-[10px] text-[var(--premium-text-muted)]">
           Open this page on Android to install.
         </p>

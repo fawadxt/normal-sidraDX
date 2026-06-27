@@ -6,6 +6,7 @@ import { QrScannerProvider } from '../context/QrScannerContext'
 import { ConnectWalletModal } from '../components/ConnectWalletModal'
 import { BottomNav } from '../components/wallet/BottomNav'
 import { InstallPrompt } from '../components/wallet/InstallPrompt'
+import { ApkDownloadBanner } from '../components/wallet/ApkDownloadBanner'
 import { PullToRefresh } from '../components/wallet/PullToRefresh'
 import { WalletShellProvider, useWalletShell } from '../context/WalletShellContext'
 import { WalletNotificationsProvider } from '../context/WalletNotificationsContext'
@@ -49,6 +50,7 @@ function WalletChrome() {
             className="wallet-main-scroll wallet-keyboard-aware min-h-0 flex-1 overflow-y-auto"
           >
             <PullToRefresh>
+              <ApkDownloadBanner />
               <Outlet />
             </PullToRefresh>
           </main>

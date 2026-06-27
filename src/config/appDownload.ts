@@ -1,9 +1,9 @@
 import { isNativePlatform, isStandalonePwa } from '../lib/platform'
 
 /** Same-origin APK path — used when file is in `public/downloads/`. */
-export const LOCAL_APK_PATH = '/downloads/fa-wallet.apk'
+export const LOCAL_APK_PATH = '/downloads/sidrawallet.apk'
 
-export const APK_BANNER_DISMISS_KEY = 'fa_apk_banner_dismissed_v1'
+export const APK_BANNER_DISMISS_KEY = 'sidrawallet_apk_banner_dismissed_v2'
 
 function toDirectDownloadUrl(url: string): string {
   const fileMatch = url.match(/drive\.google\.com\/file\/d\/([^/]+)/)
@@ -31,10 +31,15 @@ export function isAndroidBrowser(): boolean {
   return /android/i.test(navigator.userAgent)
 }
 
-export function shouldShowApkDownload(): boolean {
+/** Show APK promo on any mobile/desktop browser — not inside the installed app. */
+export function shouldShowApkBanner(): boolean {
   if (isNativePlatform() || isStandalonePwa()) return false
-  if (!getApkDownloadUrl()) return false
-  return isAndroidBrowser()
+  return !!getApkDownloadUrl()
+}
+
+/** @deprecated use shouldShowApkBanner */
+export function shouldShowApkDownload(): boolean {
+  return shouldShowApkBanner()
 }
 
 export function isApkBannerDismissed(): boolean {

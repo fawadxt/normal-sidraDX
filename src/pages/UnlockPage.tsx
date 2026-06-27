@@ -14,6 +14,7 @@ import {
 } from '../lib/walletLock'
 import { loadWalletSettings } from '../lib/walletSettings'
 import { BRAND } from '../config/brand'
+import { ApkDownloadBanner } from '../components/wallet/ApkDownloadBanner'
 
 const PIN_LENGTH = 4
 
@@ -210,7 +211,9 @@ export function UnlockPage() {
           disabled={lockedOut || unlocking}
         />
 
-        <p className="mt-6 text-center text-[11px] font-medium tracking-wide text-[var(--premium-text-muted)]">
+        <ApkDownloadBanner compact className="mt-6" />
+
+        <p className="mt-4 text-center text-[11px] font-medium tracking-wide text-[var(--premium-text-muted)]">
           {BRAND.name}
         </p>
       </div>
