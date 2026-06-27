@@ -5,6 +5,7 @@ import { sidraChain } from '../config/sidraChain'
 import { MetaMaskIcon } from './icons/MetaMaskIcon'
 import { SafePalIcon } from './icons/SafePalIcon'
 import { AppLogo } from './AppLogo'
+import { BRAND } from '../config/brand'
 
 import { ImportWalletFlow } from './ImportWalletFlow'
 
@@ -193,7 +194,7 @@ export function ConnectWalletModal({
             <AppLogo size="sm" />
             <div>
               <h2 className="text-lg font-bold text-slate-900 leading-tight">Connect Wallet</h2>
-              <p className="text-[11px] text-slate-500 font-medium">SidraDX</p>
+              <p className="text-[11px] font-medium text-slate-500">{BRAND.name}</p>
             </div>
           </div>
 
@@ -437,7 +438,7 @@ export function ConnectWalletModal({
 
             <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400 px-1">
 
-              SidraDX Wallet
+              {BRAND.name}
 
             </p>
 

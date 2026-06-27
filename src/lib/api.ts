@@ -4,6 +4,7 @@ export type SwapToken = {
   address: string | null
   decimals: number
   isNative?: boolean
+  chainId?: number
 }
 
 export type AppConfig = {
@@ -71,8 +72,12 @@ export async function fetchQuote(
   from: string,
   to: string,
   amountIn: string,
+  slippageBps?: number,
 ): Promise<SwapQuote> {
   const params = new URLSearchParams({ from, to, amountIn })
+  if (slippageBps !== undefined && Number.isFinite(slippageBps)) {
+    params.set('slippageBps', String(Math.round(slippageBps)))
+  }
   const res = await fetch(`${API_BASE}/api/quote?${params}`)
   const data = await readJsonResponse<SwapQuote & { error?: string }>(res)
   if (!res.ok) throw new Error(data.error ?? 'Quote failed')

@@ -12,8 +12,9 @@ import {
   SwitchChainError,
 } from 'viem'
 import { ChainNotConfiguredError, ConnectorNotConnectedError } from '@wagmi/core'
+import { BRAND } from './brand'
 import { sidraChain } from './sidraChain'
-import { accountFromStoredSecret, clearStoredPrivateKey } from '../lib/walletStorage'
+import { accountFromStoredSecret } from '../lib/walletStorage'
 
 let activeAccount: Account | null = null
 let connected = false
@@ -28,7 +29,7 @@ localWallet.type = 'localWallet' as const
 export function localWallet() {
   return createConnector((config) => ({
     id: 'sidradx-local',
-    name: 'SidraDX Wallet',
+    name: BRAND.name,
     type: localWallet.type,
 
     async connect({ chainId } = {}) {
@@ -52,7 +53,6 @@ export function localWallet() {
     async disconnect() {
       connected = false
       activeAccount = null
-      clearStoredPrivateKey()
     },
 
     async getAccounts() {

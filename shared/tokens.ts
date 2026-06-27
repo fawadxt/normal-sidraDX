@@ -4,6 +4,7 @@ export type SwapToken = {
   address: string | null
   decimals: number
   isNative?: boolean
+  chainId?: number
   wrappedAddress?: string
   /** On-chain sell output / CPAMM estimate. Only set when pool sells below the buy-implied rate (e.g. BINV). */
   sellHaircut?: number

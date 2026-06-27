@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useAccount, useConnect, useConnectors, useSwitchChain } from 'wagmi'
 import { numberToHex } from 'viem'
 import { sidraChain } from '../config/sidraChain'
@@ -49,7 +49,6 @@ export function useWalletConnect() {
   const { connect, isPending, error, reset } = useConnect()
   const { switchChain, isPending: isSwitchingChain } = useSwitchChain()
   const [localError, setLocalError] = useState<string | null>(null)
-  const chainSwitchAttempted = useRef(false)
 
   const availableWallets = connectors.map((c) => ({
     id: c.id,
@@ -143,25 +142,6 @@ export function useWalletConnect() {
   )
 
   useEffect(() => {
-    if (!isConnected || !chainId || chainId === sidraChain.id) {
-      chainSwitchAttempted.current = false
-      return
-    }
-
-    if (chainSwitchAttempted.current) return
-    chainSwitchAttempted.current = true
-
-    switchChain(
-      { chainId: sidraChain.id },
-      {
-        onError: () => {
-          setLocalError('Please switch your wallet to Sidra Chain (ID: 97453).')
-        },
-      },
-    )
-  }, [isConnected, chainId, switchChain])
-
-  useEffect(() => {
     if (isConnected) return
     if (!hasStoredWallet()) return
 
@@ -191,5 +171,7 @@ export function useWalletConnect() {
     isConnecting,
     connectError,
     isWrongChain: isConnected && chainId !== sidraChain.id,
+    switchChain,
+    isSwitchingChain,
   }
 }

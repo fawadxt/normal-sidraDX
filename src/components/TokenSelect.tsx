@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { TokenIcon } from './wallet/TokenIcon'
 
 type TokenOption = {
   symbol: string
@@ -11,6 +12,7 @@ type Props = {
   options: TokenOption[]
   onChange: (symbol: string) => void
   variant?: 'pay' | 'receive'
+  theme?: 'dark' | 'wallet'
 }
 
 function matchesSearch(token: TokenOption, query: string): boolean {
@@ -22,11 +24,13 @@ function matchesSearch(token: TokenOption, query: string): boolean {
   )
 }
 
-export function TokenSelect({ value, options, onChange, variant = 'pay' }: Props) {
+export function TokenSelect({ value, options, onChange, variant = 'pay', theme = 'dark' }: Props) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const rootRef = useRef<HTMLDivElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
+
+  const isWalletTheme = theme === 'wallet'
 
   const selected = options.find((t) => t.symbol === value) ?? options[0]
 
@@ -56,8 +60,11 @@ export function TokenSelect({ value, options, onChange, variant = 'pay' }: Props
     }
   }, [open])
 
-  const triggerClass =
-    variant === 'receive'
+  const triggerClass = isWalletTheme
+    ? variant === 'receive'
+      ? 'bg-[#FFF9E6] border-[#D4AF37]/40 text-[#A67C00] hover:border-[#D4AF37]/60'
+      : 'bg-[#FAFAFA] border-black/[0.08] text-[#111111] hover:border-[#D4AF37]/40'
+    : variant === 'receive'
       ? 'bg-gradient-to-br from-blue-600/20 to-cyan-600/10 border-blue-500/40 text-cyan-300 hover:border-cyan-400/60 hover:from-blue-600/30'
       : 'bg-slate-800/90 border-slate-600/60 text-slate-100 hover:border-slate-500 hover:bg-slate-800'
 
@@ -66,11 +73,12 @@ export function TokenSelect({ value, options, onChange, variant = 'pay' }: Props
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
-        className={`flex items-center gap-1.5 min-w-[5.5rem] px-3 py-2 rounded-xl border text-xs font-bold tracking-wide shadow-sm transition-all cursor-pointer ${triggerClass}`}
+        className={`flex shrink-0 items-center gap-1.5 max-w-[40%] min-w-0 px-2.5 py-2 rounded-xl border text-xs font-bold tracking-wide shadow-sm transition-all cursor-pointer sm:min-w-[4.5rem] sm:px-3 ${triggerClass}`}
         aria-expanded={open}
         aria-haspopup="listbox"
       >
-        <span>{selected?.symbol ?? value}</span>
+        <TokenIcon symbol={selected?.symbol ?? value} size={20} className="!h-5 !w-5 !rounded-md" />
+        <span className="truncate">{selected?.symbol ?? value}</span>
         <svg
           className={`w-3.5 h-3.5 opacity-70 transition-transform ${open ? 'rotate-180' : ''}`}
           viewBox="0 0 20 20"
@@ -86,8 +94,14 @@ export function TokenSelect({ value, options, onChange, variant = 'pay' }: Props
       </button>
 
       {open && (
-        <div className="absolute right-0 z-50 mt-2 w-64 rounded-xl border border-slate-700/80 bg-slate-900/98 backdrop-blur-md shadow-2xl shadow-black/40 overflow-hidden">
-          <div className="sticky top-0 z-10 border-b border-slate-700/80 bg-slate-900/98 p-2">
+        <div className={`absolute right-0 z-50 mt-2 w-[min(16rem,calc(100vw-2.5rem))] overflow-hidden rounded-[20px] border shadow-2xl ${
+          isWalletTheme
+            ? 'border-black/[0.06] bg-white/98 backdrop-blur-md shadow-black/10'
+            : 'border-slate-700/80 bg-slate-900/98 backdrop-blur-md shadow-black/40'
+        }`}>
+          <div className={`sticky top-0 z-10 border-b p-2 ${
+            isWalletTheme ? 'border-black/[0.06] bg-white/98' : 'border-slate-700/80 bg-slate-900/98'
+          }`}>
             <label className="sr-only" htmlFor={`token-search-${variant}`}>
               Search tokens
             </label>
@@ -111,7 +125,11 @@ export function TokenSelect({ value, options, onChange, variant = 'pay' }: Props
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="Search name or symbol"
-                className="w-full rounded-lg border border-slate-600/60 bg-slate-800/90 py-2 pl-8 pr-3 text-xs text-slate-100 placeholder:text-slate-500 outline-none focus:border-cyan-500/50 focus:ring-1 focus:ring-cyan-500/30"
+                className={`w-full rounded-lg border py-2 pl-8 pr-3 text-xs outline-none focus:ring-1 ${
+                  isWalletTheme
+                    ? 'border-black/[0.08] bg-[#FAFAFA] text-[#111111] placeholder:text-[#777777] focus:border-[#D4AF37]/50 focus:ring-[#D4AF37]/30'
+                    : 'border-slate-600/60 bg-slate-800/90 text-slate-100 placeholder:text-slate-500 focus:border-cyan-500/50 focus:ring-cyan-500/30'
+                }`}
                 autoComplete="off"
                 onKeyDown={(e) => e.stopPropagation()}
               />
@@ -135,22 +153,35 @@ export function TokenSelect({ value, options, onChange, variant = 'pay' }: Props
                       className={`w-full text-left px-3 py-2.5 transition-colors cursor-pointer flex items-start justify-between gap-2
                     ${
                       isActive
-                        ? 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border-l-2 border-cyan-400'
-                        : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-2 border-transparent'
+                        ? isWalletTheme
+                          ? 'bg-[#FFF9E6] text-[#A67C00] border-l-2 border-[#D4AF37]'
+                          : 'bg-gradient-to-r from-cyan-500/20 to-blue-600/20 text-cyan-300 border-l-2 border-cyan-400'
+                        : isWalletTheme
+                          ? 'text-[#111111] hover:bg-[#FAFAFA] border-l-2 border-transparent'
+                          : 'text-slate-300 hover:bg-slate-800 hover:text-white border-l-2 border-transparent'
                     }`}
                     >
-                      <div className="min-w-0 flex-1">
+                      <div className="flex min-w-0 flex-1 items-center gap-2">
+                        <TokenIcon symbol={token.symbol} size={28} className="!h-7 !w-7 !rounded-lg" />
+                        <div className="min-w-0 flex-1">
                         <span className="block text-xs font-semibold">{token.symbol}</span>
                         {token.name && (
                           <span className="block text-[10px] font-normal text-slate-500 mt-0.5 truncate">
                             {token.name}
                           </span>
                         )}
+                        </div>
                       </div>
                       {token.balance !== undefined && (
                         <span
                           className={`shrink-0 text-[11px] font-mono font-bold tabular-nums ${
-                            isActive ? 'text-cyan-200' : 'text-slate-400'
+                            isActive
+                              ? isWalletTheme
+                                ? 'text-[#A67C00]'
+                                : 'text-cyan-200'
+                              : isWalletTheme
+                                ? 'text-[#777777]'
+                                : 'text-slate-400'
                           }`}
                         >
                           {token.balance}

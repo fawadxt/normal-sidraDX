@@ -14,7 +14,7 @@ quoteRouter.get('/', async (req, res) => {
   }
 
   const routerAddress = process.env.SWAP_ROUTER_ADDRESS?.trim() || null
-  const slippageBps = Number(process.env.SWAP_SLIPPAGE_BPS ?? 100)
+  const slippageBps = Number(req.query.slippageBps ?? process.env.SWAP_SLIPPAGE_BPS ?? 100)
 
   try {
     const quote = await quoteSwap(from, to, amountIn, routerAddress, slippageBps)

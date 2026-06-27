@@ -2,9 +2,11 @@ import { createConfig, createStorage, http, type CreateConnectorFn } from 'wagmi
 import { injected, metaMask, walletConnect } from '@wagmi/connectors'
 import type { EIP1193Provider } from 'viem'
 import { localWallet } from './localWalletConnector'
+import { BRAND } from './brand'
 import { sidraChain } from './sidraChain'
+import { bscChain } from './bscChain'
 
-export { sidraChain }
+export { sidraChain, bscChain }
 
 const appUrl = import.meta.env.VITE_APP_URL ?? 'http://localhost:5173'
 const walletConnectProjectId = import.meta.env.VITE_WALLETCONNECT_PROJECT_ID
@@ -13,7 +15,7 @@ const connectors: CreateConnectorFn[] = [
   localWallet(),
   metaMask({
     dappMetadata: {
-      name: 'SidraDX',
+      name: BRAND.name,
       url: appUrl,
     },
   }),
@@ -52,10 +54,10 @@ if (walletConnectProjectId) {
     walletConnect({
       projectId: walletConnectProjectId,
       metadata: {
-        name: 'SidraDX',
-        description: 'Sidra Chain DEX Wallet',
+        name: BRAND.name,
+        description: BRAND.description,
         url: appUrl,
-        icons: [`${appUrl}/logo.png`],
+        icons: [`${appUrl}${BRAND.iconPath}`],
       },
       showQrModal: true,
     }),
@@ -63,10 +65,11 @@ if (walletConnectProjectId) {
 }
 
 export const wagmiConfig = createConfig({
-  chains: [sidraChain],
+  chains: [sidraChain, bscChain],
   connectors,
   storage: createStorage({ storage: localStorage }),
   transports: {
     [sidraChain.id]: http('https://node.sidrachain.com'),
+    [bscChain.id]: http('https://bsc-dataseed.binance.org'),
   },
 })

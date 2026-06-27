@@ -1,0 +1,28 @@
+{
+  "name": "SidraWallet",
+  "short_name": "SidraWallet",
+  "description": "Premium mobile wallet — swap, send, and manage assets on Sidra Chain.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "theme_color": "#1E2A3A",
+  "background_color": "#F4F3F0",
+  "categories": ["finance", "utilities"],
+  "icons": [
+    {
+      "src": "/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/app-icon.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ],
+  "screenshots": [],
+  "prefer_related_applications": false
+}

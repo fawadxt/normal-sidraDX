@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { fetchConfig, type AppConfig } from '../lib/api'
+import { useWalletRefreshTick } from '../context/WalletRefreshContext'
 import { FEE_ROUTER_ADDRESS, SWAP_FEE_AMOUNT, SWAP_FEE_RECIPIENT, isSwapFeeConfigured } from '../config/constants'
 import { SIDRA_TOKENS } from '../../shared/tokens'
 
@@ -27,6 +28,7 @@ const fallbackConfig: AppConfig = {
 }
 
 export function useAppConfig() {
+  const refreshTick = useWalletRefreshTick()
   const [config, setConfig] = useState<AppConfig>(fallbackConfig)
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -51,7 +53,7 @@ export function useAppConfig() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [refreshTick])
 
   const feeRecipient = config.swapFeeRecipient as `0x${string}` | null
   const feeRouterAddress = config.feeRouterAddress as `0x${string}` | null
